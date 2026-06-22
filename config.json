@@ -8,7 +8,7 @@
     "ASTER": {"symbol": "ASTER-USDT", "decimals": 4, "name": "Aster"},
     "TAO": {"symbol": "TAO-USDT", "decimals": 2, "name": "Bittensor", "source": "coingecko", "coin_id": "bittensor"},
     "ENA": {"symbol": "ENA-USDT", "decimals": 4, "name": "Ethena"},
-    "GENIUS": {"symbol": "GENIUSUSDT", "decimals": 4, "name": "Genius", "source": "binance"}
+    "GENIUSUSDT": {"symbol": "GENIUSUSDT", "decimals": 4, "name": "Genius", "source": "binance"}
   },
   "poll_interval_seconds": 90,
   "alert_cooldown_minutes": 30,
