@@ -1,0 +1,12 @@
+{
+  "sendkey": "YOUR_SERVERCHAN_SENDKEY",
+  "poll_interval": 90,
+  "alert_cooldown_minutes": 30,
+  "telegram": {
+    "bot_token": "YOUR_BOT_TOKEN",
+    "chat_id": "YOUR_CHAT_ID"
+  },
+  "dingtalk": {
+    "webhook_url": "YOUR_DINGTALK_WEBHOOK"
+  }
+}

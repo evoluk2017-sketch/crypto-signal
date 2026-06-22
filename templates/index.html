@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>CryptoSignal — 智能合约信号系统</title>
+<style>
+/* ============================================================
+   CryptoSignal Dashboard — Dark Premium Theme
+   ============================================================ */
+:root {
+  --bg: #0a0e17;
+  --bg-card: rgba(15, 20, 35, 0.85);
+  --bg-card-hover: rgba(20, 28, 48, 0.92);
+  --border: rgba(255, 255, 255, 0.06);
+  --border-hover: rgba(255, 255, 255, 0.12);
+  --text: #e2e8f0;
+  --text-dim: #8892a4;
+  --text-muted: #556178;
+  --green: #00d4aa;
+  --green-glow: rgba(0, 212, 170, 0.3);
+  --red: #ff4757;
+  --red-glow: rgba(255, 71, 87, 0.3);
+  --yellow: #f9a825;
+  --blue: #4dabf7;
+  --purple: #9775fa;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-image:
+    radial-gradient(ellipse at 20% 20%, rgba(0, 212, 170, 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 60%, rgba(77, 171, 247, 0.04) 0%, transparent 60%);
+}
+
+/* ============ Header ============ */
+.header {
+  padding: 24px 24px 0;
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.header h1 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--green) 0%, var(--blue) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.header .subtitle {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green-glow);
+  animation: pulse 2s infinite;
+}
+.status-dot.error { background: var(--red); box-shadow: 0 0 8px var(--red-glow); }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.refresh-countdown { font-variant-numeric: tabular-nums; }
+
+/* ============ Grid ============ */
+.dashboard {
+  max-width: 1400px;
+  margin: 20px auto;
+  padding: 0 24px 40px;
+}
+
+/* Coin Cards Grid */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 768px) {
+  .card-grid { grid-template-columns: 1fr; }
+  .header h1 { font-size: 22px; }
+  .header { padding: 16px 16px 0; }
+  .dashboard { padding: 12px 12px 32px; }
+}
+
+/* ============ Coin Card ============ */
+.coin-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.coin-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+/* Card gradient edge based on direction */
+.coin-card.long::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--green), transparent);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.coin-card.short::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--red), transparent);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.coin-card.wait::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--text-muted), transparent);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+/* Card Header */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.coin-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.coin-icon {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+.icon-btc { background: linear-gradient(135deg, #f7931a, #e67819); }
+.icon-eth { background: linear-gradient(135deg, #627eea, #4b6cf7); }
+.icon-bnb { background: linear-gradient(135deg, #f0b90b, #e09c0a); }
+.icon-sol { background: linear-gradient(135deg, #9945ff, #7c3aed); }
+
+.coin-symbol { font-size: 15px; font-weight: 600; color: var(--text); }
+.coin-price {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+}
+.price-change {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+.price-change.up { color: var(--green); background: rgba(0, 212, 170, 0.1); }
+.price-change.down { color: var(--red); background: rgba(255, 71, 87, 0.1); }
+
+/* Signal Badge */
+.signal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.signal-badge.long {
+  background: rgba(0, 212, 170, 0.15);
+  color: var(--green);
+  box-shadow: 0 0 16px rgba(0, 212, 170, 0.15);
+}
+.signal-badge.short {
+  background: rgba(255, 71, 87, 0.15);
+  color: var(--red);
+  box-shadow: 0 0 16px rgba(255, 71, 87, 0.15);
+}
+.signal-badge.wait {
+  background: rgba(137, 146, 164, 0.12);
+  color: var(--text-dim);
+}
+
+/* Score Gauge */
+.score-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 12px 0;
+}
+.gauge {
+  width: 80px; height: 80px;
+  position: relative;
+  flex-shrink: 0;
+}
+.gauge-svg { transform: rotate(-90deg); }
+.gauge-bg { fill: none; stroke: rgba(255,255,255,0.06); stroke-width: 6; }
+.gauge-fill { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 1s ease, stroke 0.5s ease; }
+.gauge-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.gauge-value { font-size: 22px; font-weight: 700; line-height: 1; }
+.gauge-label { font-size: 9px; color: var(--text-dim); margin-top: 2px; }
+
+.score-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.score-meta strong { color: var(--text); font-size: 13px; }
+
+/* Indicators row */
+.indicators {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.indicator {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+}
+.indicator .label { color: var(--text-muted); }
+.indicator .value { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* Levels section */
+.levels {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  font-size: 11px;
+}
+.level-item { display: flex; justify-content: space-between; }
+.level-item .lbl { color: var(--text-muted); }
+.level-item .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+.level-item.tp .val { color: var(--green); }
+.level-item.sl .val { color: var(--red); }
+.level-item.entry .val { color: var(--blue); }
+
+/* ============ History Section ============ */
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::before {
+  content: '';
+  width: 4px; height: 16px;
+  background: var(--green);
+  border-radius: 2px;
+}
+
+.history-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.history-list { max-height: 360px; overflow-y: auto; }
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.history-item:last-child { border-bottom: none; }
+.history-time { color: var(--text-muted); font-size: 11px; width: 50px; flex-shrink: 0; }
+.history-sym { font-weight: 700; width: 36px; flex-shrink: 0; }
+.history-dir {
+  padding: 2px 10px; border-radius: 12px;
+  font-size: 11px; font-weight: 600;
+}
+.history-dir.long { background: rgba(0, 212, 170, 0.15); color: var(--green); }
+.history-dir.short { background: rgba(255, 71, 87, 0.15); color: var(--red); }
+.history-score { font-weight: 700; width: 44px; text-align: right; flex-shrink: 0; }
+.history-price { color: var(--text-dim); flex-shrink: 0; }
+.history-ch { font-size: 10px; color: var(--text-muted); margin-left: auto; }
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+.empty-state .icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
+
+/* ============ Footer ============ */
+.footer {
+  text-align: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.footer a { color: var(--text-dim); text-decoration: none; }
+.footer a:hover { color: var(--green); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+
+/* Animation */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.coin-card { animation: fadeInUp 0.4s ease both; }
+.coin-card:nth-child(1) { animation-delay: 0s; }
+.coin-card:nth-child(2) { animation-delay: 0.08s; }
+.coin-card:nth-child(3) { animation-delay: 0.16s; }
+.coin-card:nth-child(4) { animation-delay: 0.24s; }
+
+/* Mobile tweak */
+@media (max-width: 480px) {
+  .coin-card { padding: 14px; }
+  .gauge { width: 64px; height: 64px; }
+  .gauge-value { font-size: 18px; }
+  .coin-price { font-size: 20px; }
+  .indicators { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>CryptoSignal</h1>
+    <div class="subtitle">六因子保守策略 · 智能合约信号系统</div>
+  </div>
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">连接中...</span>
+    <span class="refresh-countdown" id="countdown"></span>
+  </div>
+</div>
+
+<div class="dashboard">
+  <!-- Coin Cards -->
+  <div class="card-grid" id="cardGrid"></div>
+
+  <!-- History Panel -->
+  <div class="history-panel">
+    <div class="section-title">信号历史</div>
+    <div class="history-list" id="historyList"></div>
+  </div>
+</div>
+
+<div class="footer">
+  CryptoSignal v2.0 · 信号仅供参考，不构成投资建议 · 市场有风险，交易需谨慎
+</div>
+
+<script>
+// ============================================================
+// Config — 部署后改为你的 Render.com 后端地址
+// ============================================================
+const BACKEND_URL = '';  // 例如 'https://cryptosignal-xxxx.onrender.com'
+const COIN_ORDER = ['BTC', 'ETH', 'BNB', 'SOL'];
+const COIN_ICONS = { BTC: 'icon-btc', ETH: 'icon-eth', BNB: 'icon-bnb', SOL: 'icon-sol' };
+const COIN_NAMES = { BTC: 'Bitcoin', ETH: 'Ethereum', BNB: 'Binance Coin', SOL: 'Solana' };
+let COUNTDOWN = 60;
+let countdownTimer = null;
+let lastApiSuccess = false;
+
+// ============================================================
+// Gauge helper
+// ============================================================
+function gaugeColor(score) {
+  if (score >= 75) return 'var(--green)';
+  if (score >= 61) return '#66bb6a';
+  if (score >= 41) return 'var(--text-dim)';
+  if (score >= 26) return '#ff9800';
+  return 'var(--red)';
+}
+
+function directionLabel(score) {
+  if (score >= 75) return ['做多', 'long'];
+  if (score >= 61) return ['偏向做多', 'long'];
+  if (score >= 41) return ['观望', 'wait'];
+  if (score >= 26) return ['偏向做空', 'short'];
+  return ['做空', 'short'];
+}
+
+// ============================================================
+// Render
+function renderCard(data) {
+  const { price, score, direction, levels, rsi, macd_hist, ema9, ema21, atr, changes, bb_upper, bb_mid, bb_lower } = data;
+  const [dirLabel, dirClass] = directionLabel(score);
+  const circumference = 2 * Math.PI * 30;
+  const offset = circumference * (1 - score / 100);
+
+  const ch24h = changes?.['24h'] || 0;
+  const ch7d = changes?.['7d'] || 0;
+
+  return `
+    <div class="coin-card ${dirClass}">
+      <div class="card-header">
+        <div class="coin-name">
+          <div class="coin-icon ${COIN_ICONS[data.sym]}">${data.sym[0]}</div>
+          <div>
+            <div class="coin-symbol">${data.sym} <span style="color:var(--text-muted);font-size:11px;font-weight:400">${COIN_NAMES[data.sym]}</span></div>
+            <div class="coin-price">$${price.toLocaleString('en-US', {minimumFractionDigits: data.sym === 'BNB' || data.sym === 'SOL' ? 2 : 0, maximumFractionDigits: data.sym === 'BNB' || data.sym === 'SOL' ? 2 : 0})}</div>
+          </div>
+        </div>
+        <div class="signal-badge ${dirClass}">${dirLabel}</div>
+      </div>
+
+      <div class="score-section">
+        <div class="gauge">
+          <svg class="gauge-svg" viewBox="0 0 70 70" width="70" height="70">
+            <circle class="gauge-bg" cx="35" cy="35" r="30"/>
+            <circle class="gauge-fill" cx="35" cy="35" r="30"
+              stroke="${gaugeColor(score)}"
+              stroke-dasharray="${circumference}"
+              stroke-dashoffset="${offset}"/>
+          </svg>
+          <div class="gauge-text">
+            <div class="gauge-value" style="color:${gaugeColor(score)}">${score}</div>
+            <div class="gauge-label">/ 100</div>
+          </div>
+        </div>
+        <div class="score-meta">
+          <div>24h <strong style="color:${ch24h >= 0 ? 'var(--green)' : 'var(--red)'}">${ch24h >= 0 ? '+' : ''}${ch24h.toFixed(2)}%</strong></div>
+          <div>7d  <strong style="color:${ch7d >= 0 ? 'var(--green)' : 'var(--red)'}">${ch7d >= 0 ? '+' : ''}${ch7d.toFixed(2)}%</strong></div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">RSI ${rsi?.toFixed(1) || '--'} · MACD ${macd_hist?.toFixed(4) || '--'}</div>
+        </div>
+      </div>
+
+      <div class="indicators">
+        <div class="indicator"><span class="label">EMA(9)</span><span class="value">$${ema9?.toLocaleString() || '--'}</span></div>
+        <div class="indicator"><span class="label">EMA(21)</span><span class="value">$${ema21?.toLocaleString() || '--'}</span></div>
+        <div class="indicator"><span class="label">ATR(14)</span><span class="value">$${atr?.toFixed(2) || '--'}</span></div>
+        <div class="indicator"><span class="label">布林宽度</span><span class="value">$${((bb_upper - bb_lower) / bb_mid * 100)?.toFixed(1) || '--'}%</span></div>
+      </div>
+
+      <div class="levels">
+        <div class="level-item entry"><span class="lbl">🎯 入场</span><span class="val">${levels?.entry_zone || '—'}</span></div>
+        <div class="level-item sl"><span class="lbl">🛑 止损</span><span class="val">${levels?.stop_loss || '—'}</span></div>
+        <div class="level-item tp"><span class="lbl">✅ 止盈1</span><span class="val">${levels?.take_profit_1 || '—'}</span></div>
+        <div class="level-item tp"><span class="lbl">✅ 止盈2</span><span class="val">${levels?.take_profit_2 || '—'}</span></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderHistory(history) {
+  if (!history || history.length === 0) {
+    return `<div class="empty-state">
+      <div class="icon">📭</div>
+      <div>暂无信号记录</div>
+      <div style="font-size:12px;margin-top:4px;color:var(--text-muted)">当评分突破 ≥75 或 ≤25 时自动记录</div>
+    </div>`;
+  }
+
+  return history.slice(0, 20).map(h => {
+    const time = new Date(h.time);
+    const timeStr = time.toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const dirClass = h.direction === '做多' ? 'long' : 'short';
+    const dirEmoji = h.direction === '做多' ? '🟢' : '🔴';
+    const chStr = h.channels?.length ? h.channels.join('+') : '—';
+    return `
+      <div class="history-item">
+        <span class="history-time">${timeStr}</span>
+        <span class="history-sym">${h.symbol}</span>
+        <span class="history-dir ${dirClass}">${dirEmoji} ${h.direction}</span>
+        <span class="history-score">${h.score}/100</span>
+        <span class="history-price">$${h.price?.toLocaleString() || '--'}</span>
+        <span class="history-ch">${chStr}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// ============================================================
+// Data Fetching
+// ============================================================
+async function fetchData() {
+  try {
+    const apiBase = BACKEND_URL || '';
+    const resp = await fetch(apiBase + '/api/status');
+    const data = await resp.json();
+
+    lastApiSuccess = true;
+    document.getElementById('statusDot').className = 'status-dot';
+    document.getElementById('statusText').textContent = '引擎运行中';
+
+    const grid = document.getElementById('cardGrid');
+    grid.innerHTML = COIN_ORDER.map(sym => {
+      const r = data.results?.[sym];
+      if (!r) return '';
+      return renderCard({ ...r, sym });
+    }).join('');
+
+    document.getElementById('historyList').innerHTML = renderHistory(data.history);
+    COUNTDOWN = (data.config?.poll_interval || 60);
+  } catch (e) {
+    if (lastApiSuccess) {
+      document.getElementById('statusText').textContent = '后端断连，数据可能过时';
+      document.getElementById('statusDot').className = 'status-dot error';
+    } else {
+      document.getElementById('statusDot').className = 'status-dot error';
+      document.getElementById('statusText').textContent = '等待后端部署';
+      document.getElementById('cardGrid').innerHTML = renderPlaceholder();
+    }
+  }
+}
+
+function renderPlaceholder() {
+  return COIN_ORDER.map(sym => `
+    <div class="coin-card wait" style="display:flex;align-items:center;justify-content:center;min-height:280px;flex-direction:column;text-align:center">
+      <div style="font-size:48px;margin-bottom:16px;opacity:0.3">📡</div>
+      <div style="color:var(--text-dim);font-size:14px;font-weight:600;margin-bottom:8px">${sym} — 等待数据</div>
+      <div style="color:var(--text-muted);font-size:12px;max-width:240px">后端引擎尚未部署。请参考部署指南将 Flask 服务部署到 Render.com</div>
+    </div>
+  `).join('');
+}
+
+// ============================================================
+// Countdown Timer
+// ============================================================
+function startCountdown() {
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    COUNTDOWN--;
+    document.getElementById('countdown').textContent = COUNTDOWN > 0 ? `${COUNTDOWN}s 后刷新` : '';
+    if (COUNTDOWN <= 0) {
+      COUNTDOWN = 60;
+      fetchData();
+    }
+  }, 1000);
+}
+
+// ============================================================
+// Init
+// ============================================================
+fetchData();
+startCountdown();
+</script>
+</body>
+</html>
