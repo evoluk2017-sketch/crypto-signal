@@ -98,9 +98,21 @@ def engine_loop():
     print(f"  冷却: {CONFIG['alert_cooldown_minutes']}分钟 | 刷新: {POLL_INTERVAL}秒")
     print("-" * 55)
 
+    _sync_fresh_seconds = POLL_INTERVAL * 3  # 3个周期内有本地推送则跳过自行拉取
+
     while True:
         try:
+            # 如果有本地推送的数据且较新，跳过自行拉取（避免覆盖）
             with state_lock:
+                if state["engine_status"] == "synced" and state["results"] and state["last_update"]:
+                    try:
+                        last_dt = datetime.fromisoformat(state["last_update"])
+                        elapsed = (datetime.now() - last_dt).total_seconds()
+                        if elapsed < _sync_fresh_seconds:
+                            time.sleep(POLL_INTERVAL)
+                            continue
+                    except Exception:
+                        pass
                 state["engine_status"] = "fetching"
 
             market, history = fetch_all_data(COINS)
