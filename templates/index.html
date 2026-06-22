@@ -454,6 +454,158 @@ body {
 .history-price { color: var(--text-dim); flex-shrink: 0; font-size: 13px; font-feature-settings: "tnum"; }
 .history-ch    { font-size: 11px; color: var(--text-muted); margin-left: auto; }
 
+/* ============ Fear & Greed Bar ============ */
+.fng-bar {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 28px;
+  margin-bottom: 22px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.fng-icon {
+  font-size: 36px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.fng-info { flex: 1; min-width: 200px; }
+.fng-info .fng-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+}
+.fng-info .fng-value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.fng-info .fng-num {
+  font-size: 42px;
+  font-weight: 900;
+  line-height: 1;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+.fng-info .fng-class {
+  font-size: 15px;
+  font-weight: 700;
+}
+.fng-gauge {
+  flex-shrink: 0;
+  width: 180px;
+  height: 10px;
+  background: linear-gradient(90deg, #ff4965 0%, #f5a623 25%, #ffd93d 50%, #00d49f 75%, #00e676 100%);
+  border-radius: 5px;
+  position: relative;
+  overflow: visible;
+}
+.fng-gauge .fng-pointer {
+  position: absolute;
+  top: -6px;
+  width: 4px;
+  height: 22px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 12px rgba(255,255,255,0.5);
+  transform: translateX(-50%);
+  transition: left 0.8s ease;
+}
+.fng-history-mini {
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  height: 28px;
+  flex-shrink: 0;
+}
+.fng-history-mini .fng-bar-mini {
+  width: 6px;
+  border-radius: 2px 2px 0 0;
+  transition: height 0.5s ease;
+}
+
+/* ============ News Section ============ */
+.news-section {
+  margin-top: 28px;
+}
+.news-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 14px;
+}
+.news-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px 20px;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.news-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+.news-source-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  align-self: flex-start;
+}
+.news-source-badge.coindesk { background: rgba(0, 180, 255, 0.18); color: #00b4ff; }
+.news-source-badge.cointelegraph { background: rgba(255, 180, 0, 0.18); color: #ffb400; }
+.news-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--text);
+  text-decoration: none;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.news-title:hover { color: var(--green); }
+.news-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.news-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 480px) {
+  .fng-bar { padding: 16px 20px; gap: 12px; }
+  .fng-info .fng-num { font-size: 32px; }
+  .fng-gauge { width: 120px; }
+  .news-grid { grid-template-columns: 1fr; }
+  .news-card { padding: 12px 16px; }
+}
+
 .empty-state {
   text-align: center;
   padding: 52px 24px;
@@ -529,7 +681,33 @@ body {
 </div>
 
 <div class="dashboard">
+  <!-- Fear & Greed Index -->
+  <div class="fng-bar" id="fngBar" style="display:none">
+    <div class="fng-icon" id="fngIcon">😐</div>
+    <div class="fng-info">
+      <div class="fng-label">市场恐慌贪婪指数</div>
+      <div class="fng-value-row">
+        <span class="fng-num" id="fngNum">--</span>
+        <span class="fng-class" id="fngClass">—</span>
+      </div>
+    </div>
+    <div class="fng-gauge">
+      <div class="fng-pointer" id="fngPointer" style="left:50%"></div>
+    </div>
+    <div class="fng-history-mini" id="fngHistoryMini"></div>
+  </div>
+
   <div class="card-grid" id="cardGrid"></div>
+
+  <!-- News -->
+  <div class="news-section" id="newsSection" style="display:none">
+    <div class="section-header">
+      <div class="bar" style="background:var(--blue);box-shadow:0 0 8px rgba(91,156,245,0.4)"></div>
+      <span>币圈热点新闻</span>
+      <span style="font-size:12px;color:var(--text-muted);font-weight:500">— Coindesk · Cointelegraph —</span>
+    </div>
+    <div class="news-grid" id="newsGrid"></div>
+  </div>
 
   <div class="history-panel">
     <div class="section-header">
@@ -554,19 +732,19 @@ const COIN_NAMES = {
   BTC: 'Bitcoin', ETH: 'Ethereum', BNB: 'Binance Coin', SOL: 'Solana',
   ZEC: 'Zcash', ASTER: 'Aster', TAO: 'Bittensor', ENA: 'Ethena', GENIUS: 'Genius'
 };
-const COIN_DECIMALS = { BTC: 0, ETH: 0, BNB: 2, SOL: 2, ZEC: 2, ASTER: 4, TAO: 2, ENA: 4, GENIUS: 6 };
+const COIN_DECIMALS = { BTC: 0, ETH: 0, BNB: 2, SOL: 2, ZEC: 2, ASTER: 4, TAO: 2, ENA: 4, GENIUS: 4 };
 
-// Official logos from cryptologos.cc
+// Official logos (cryptologos.cc + CoinGecko fallback)
 const COIN_LOGOS = {
   BTC: 'https://cryptologos.cc/logos/bitcoin-btc-logo.svg',
   ETH: 'https://cryptologos.cc/logos/ethereum-eth-logo.svg',
   BNB: 'https://cryptologos.cc/logos/bnb-bnb-logo.svg',
   SOL: 'https://cryptologos.cc/logos/solana-sol-logo.svg',
   ZEC: 'https://cryptologos.cc/logos/zcash-zec-logo.svg',
-  TAO: 'https://cryptologos.cc/logos/bittensor-tao-logo.svg',
+  TAO: 'https://coin-images.coingecko.com/coins/images/28452/large/ARUsPeNQ_400x400.jpeg?1696527447',
   ENA: 'https://cryptologos.cc/logos/ethena-ena-logo.svg',
-  ASTER: 'https://cryptologos.cc/logos/aster-astr-logo.svg',
-  GENIUS: 'https://cryptologos.cc/logos/genius-geni-logo.svg',
+  ASTER: 'https://coin-images.coingecko.com/coins/images/69040/large/_ASTER.png?1757326782',
+  GENIUS: 'https://coin-images.coingecko.com/coins/images/71660/large/genius.png?1768804210',
 };
 
 let COUNTDOWN = 60;
@@ -813,8 +991,81 @@ function renderLoadingCard(sym) {
 }
 
 // ============================================================
-// Render: History
+// Render: Fear & Greed
 // ============================================================
+function renderFearGreed(fng) {
+  const bar = document.getElementById('fngBar');
+  if (!fng || !fng.current) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  const v = fng.current.value;
+  const cls = fng.current.classification;
+
+  // Icon
+  let icon = '😐';
+  if (v <= 25) icon = '😱';
+  else if (v <= 45) icon = '😟';
+  else if (v <= 55) icon = '😐';
+  else if (v <= 75) icon = '😊';
+  else icon = '🤩';
+  document.getElementById('fngIcon').textContent = icon;
+
+  // Number + color
+  let color = 'var(--red)';
+  if (v > 25 && v <= 45) color = '#f5a623';
+  else if (v > 45 && v <= 55) color = '#ffd93d';
+  else if (v > 55 && v <= 75) color = '#53d89e';
+  else if (v > 75) color = 'var(--green)';
+
+  document.getElementById('fngNum').textContent = v;
+  document.getElementById('fngNum').style.color = color;
+  document.getElementById('fngClass').textContent = cls;
+  document.getElementById('fngClass').style.color = color;
+  document.getElementById('fngPointer').style.left = v + '%';
+
+  // Mini history bars (last 7 days)
+  const history = fng.history || [];
+  const miniBars = history.slice(0, 7).reverse().map(h => {
+    const hColor = h.value <= 25 ? 'var(--red)' : h.value <= 45 ? '#f5a623' : h.value <= 55 ? '#ffd93d' : h.value <= 75 ? '#53d89e' : 'var(--green)';
+    return `<div class="fng-bar-mini" style="height:${h.value}%;background:${hColor}" title="${h.value} (${h.classification})"></div>`;
+  }).join('');
+  document.getElementById('fngHistoryMini').innerHTML = miniBars;
+}
+
+// ============================================================
+// Render: News
+// ============================================================
+function renderNews(newsList) {
+  const section = document.getElementById('newsSection');
+  const grid = document.getElementById('newsGrid');
+  if (!newsList || newsList.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+
+  grid.innerHTML = newsList.slice(0, 12).map(n => {
+    const src = (n.source || '').toLowerCase();
+    const srcCls = src.includes('coindesk') ? 'coindesk' : 'cointelegraph';
+    let timeStr = '';
+    try {
+      const d = new Date(n.pub_date);
+      if (!isNaN(d.getTime())) {
+        timeStr = d.toLocaleString('zh-CN', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+      }
+    } catch(e) {}
+    return `
+      <div class="news-card">
+        <span class="news-source-badge ${srcCls}">${n.source}</span>
+        <a class="news-title" href="${n.link}" target="_blank" rel="noopener">${n.title}</a>
+        <div class="news-desc">${n.description || ''}</div>
+        <span class="news-time">${timeStr || n.pub_date || ''}</span>
+      </div>
+    `;
+  }).join('');
+}
 function renderHistory(history) {
   if (!history || history.length === 0) {
     return `<div class="empty-state">
@@ -880,6 +1131,11 @@ async function fetchData() {
     grid.innerHTML = cards || renderAllLoading();
 
     document.getElementById('historyList').innerHTML = renderHistory(data.history);
+
+    // Fear & Greed + News
+    renderFearGreed(data.fear_greed);
+    renderNews(data.news);
+
     COUNTDOWN = data.config?.poll_interval || 60;
   } catch (e) {
     if (lastApiSuccess) {

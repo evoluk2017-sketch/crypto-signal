@@ -63,6 +63,8 @@ state = {
     "history": [],       # 最近50条信号历史 [{time, symbol, score, direction}, ...]
     "last_update": None,
     "engine_status": "starting",
+    "fear_greed": {},    # {current: {value, classification}, history: [...]}
+    "news": [],          # [{title, link, description, source, pub_date}, ...]
 }
 state_lock = threading.Lock()
 
@@ -252,6 +254,8 @@ def api_status():
             "last_update": state["last_update"],
             "results": state["results"],
             "history": state["history"],
+            "fear_greed": state.get("fear_greed", {}),
+            "news": state.get("news", [])[:30],  # 最近30条
             "config": {
                 "coins": list(COINS.keys()),
                 "poll_interval": POLL_INTERVAL,
@@ -294,6 +298,23 @@ def api_sync():
         state["results"] = data.get("results", {})
         state["last_update"] = data.get("last_update", datetime.now().isoformat())
         state["engine_status"] = "synced"
+
+        # 恐慌贪婪指数
+        fng = data.get("fear_greed")
+        if fng:
+            state["fear_greed"] = fng
+
+        # 新闻
+        new_news = data.get("news", [])
+        if new_news:
+            existing_links = {n.get("link") for n in state.get("news", [])}
+            for item in new_news:
+                if item.get("link") not in existing_links:
+                    state["news"].insert(0, item)
+                    existing_links.add(item.get("link"))
+            # 只保留最近200条
+            if len(state["news"]) > 200:
+                state["news"] = state["news"][:200]
 
         # 合并历史记录
         new_history = data.get("history", [])
