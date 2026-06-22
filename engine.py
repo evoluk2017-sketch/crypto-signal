@@ -1,163 +1,220 @@
 """
 CryptoSig Engine — 六因子评分 + 入场/止损/止盈计算
-数据源: Yahoo Finance (yfinance) — 全球可用, 云端不封
+纯 requests 数据源: Yahoo Finance v8 API → CoinGecko → Binance 备选
+所有请求强制 8 秒超时, 绝不卡死
 """
 import time as time_module
 import json
 import math
 import traceback
+import requests
 from datetime import datetime
 
-import yfinance as yf
+SESSION = requests.Session()
+SESSION.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+})
+
+TIMEOUT = 8  # 所有请求统一 8 秒超时
 
 # ============================================================
-# 缓存 (历史数据缓存1小时, yfinance下载慢)
+# 缓存 (历史数据缓存60分钟)
 # ============================================================
 _ohlc_cache = {}
-_CACHE_TTL = 3600  # 1小时
+_CACHE_TTL = 3600
 
-# yfinance 符号
-YF_SYMBOLS = {
-    "BTC-USDT": "BTC-USD",
-    "ETH-USDT": "ETH-USD",
-    "BNB-USDT": "BNB-USD",
-    "SOL-USDT": "SOL-USD",
-}
+# Yahoo Finance 符号
+YF_SYMBOLS = {"BTC-USDT": "BTC-USD", "ETH-USDT": "ETH-USD", "BNB-USDT": "BNB-USD", "SOL-USDT": "SOL-USD"}
+# CoinGecko ID
+CG_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "BNB": "binancecoin", "SOL": "solana"}
+# Binance 符号
+BN_SYMBOLS = {"BTC-USDT": "BTCUSDT", "ETH-USDT": "ETHUSDT", "BNB-USDT": "BNBUSDT", "SOL-USDT": "SOLUSDT"}
+
+
+def http_get(url, timeout=TIMEOUT):
+    """强制超时的 GET 请求"""
+    resp = SESSION.get(url, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
 
 
 # ============================================================
-# 数据获取 (Yahoo Finance)
+# 数据源 1: Yahoo Finance v8 chart API (最可靠, 全球CDN)
 # ============================================================
-def fetch_all_data(coins):
-    """一次批量下载所有币种的90天日线 + 当前价"""
+def fetch_yahoo_single(yf_sym):
+    """下载单个币种 90 天日线, 返回 (closes, volumes, price, ch24h)"""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_sym}?range=90d&interval=1d"
+    data = http_get(url, timeout=TIMEOUT)
+    result = data["chart"]["result"][0]
+    meta = result["meta"]
+    quotes = result["indicators"]["quote"][0]
+
+    closes = [round(float(v), 6) for v in quotes["close"] if v is not None]
+    volumes = [float(v) if v else 0 for v in quotes.get("volume", [])]
+    price = meta.get("regularMarketPrice", closes[-1] if closes else 0)
+    prev_close = meta.get("chartPreviousClose", closes[-2] if len(closes) >= 2 else price)
+
+    ch24h = ((price - prev_close) / prev_close * 100) if prev_close > 0 else 0
+    return closes, volumes, price, ch24h
+
+
+def fetch_all_yahoo(coins):
+    """Yahoo Finance v8 API 批量获取"""
     market_list = []
     history = {}
     now = time_module.time()
 
-    # 批量下载 (yfinance 支持多ticker一次下载)
-    yf_symbols = []
-    sym_order = []
     for sym_name, info in coins.items():
-        yfs = YF_SYMBOLS.get(info["symbol"], info["symbol"].replace("-", "") + "-USD")
-        yf_symbols.append(yfs)
-        sym_order.append((sym_name, info, yfs))
+        inst_id = info["symbol"]
+        yfs = YF_SYMBOLS.get(inst_id, inst_id.replace("-", "") + "-USD")
 
-    # 检查缓存: 如果有90天缓存, 只拉最近1天更新
-    use_cache = all(
-        sym_name in _ohlc_cache and now - _ohlc_cache[sym_name]["ts"] < _CACHE_TTL
-        for sym_name, _, _ in sym_order
-    )
-
-    if use_cache:
-        # 快速模式: 只更新最新价
-        print("  快速模式: 使用缓存历史数据, 仅更新最新价")
         try:
-            tickers = yf.Tickers(" ".join(yf_symbols))
-        except Exception as e:
-            print(f"  yfinance 快速更新失败: {e}, 回退到完整下载")
-            use_cache = False
+            closes, volumes, price, ch24h = fetch_yahoo_single(yfs)
 
-    if not use_cache:
-        # 完整模式: 下载90天数据
-        print("  下载90天数据 (yfinance)...")
-        try:
-            tickers = yf.Tickers(" ".join(yf_symbols))
-        except Exception as e:
-            print(f"  yfinance 初始化失败: {e}")
-            raise Exception(f"yfinance 不可用: {e}")
-
-    for sym_name, info, yfs in sym_order:
-        try:
-            ticker = tickers.tickers.get(yfs)
-            if not ticker:
-                raise Exception(f"找不到 ticker: {yfs}")
-
-            if use_cache:
-                cached = _ohlc_cache[sym_name]
-                closes = cached["closes"]
-                volumes = cached["volumes"]
-
-                # 用 fast_info 获取最新价
-                try:
-                    price = ticker.fast_info.last_price
-                    if not price or price <= 0:
-                        price = ticker.info.get("regularMarketPrice", 0)
-                except Exception:
-                    hist_1d = ticker.history(period="1d")
-                    if not hist_1d.empty:
-                        price = float(hist_1d["Close"].iloc[-1])
-                    else:
-                        price = closes[-1] if closes else 0
-
-                ch24h = 0
-                if closes and len(closes) >= 2 and closes[-2] > 0:
-                    ch24h = (price - closes[-2]) / closes[-2] * 100
-            else:
-                # 完整下载90天
-                hist = ticker.history(period="90d")
-                if hist.empty:
-                    raise Exception("yfinance 返回空数据")
-
-                closes = [round(float(v), 6) for v in hist["Close"].tolist()]
-                volumes = [float(v) for v in hist["Volume"].tolist()]
-                price = closes[-1] if closes else 0
-
-                if price <= 0:
-                    raise Exception("价格为0")
-
-                ch24h = 0
-                if len(closes) >= 2 and closes[-2] > 0:
-                    ch24h = (price - closes[-2]) / closes[-2] * 100
-
-                # 缓存
-                _ohlc_cache[sym_name] = {
-                    "closes": closes,
-                    "volumes": volumes,
-                    "ts": now,
-                }
+            if not closes or price <= 0:
+                raise Exception("Yahoo 返回空数据/价格为0")
 
             ch7d = 0
             if len(closes) >= 8 and closes[-8] > 0:
                 ch7d = (price - closes[-8]) / closes[-8] * 100
 
+            _ohlc_cache[sym_name] = {"closes": closes, "volumes": volumes, "ts": now}
             history[sym_name] = {"prices": closes, "volumes": volumes}
-
             market_list.append({
-                "id": sym_name,
-                "symbol": sym_name,
+                "id": sym_name, "symbol": sym_name,
                 "current_price": price,
                 "price_change_percentage_1h_in_currency": 0,
                 "price_change_percentage_24h": ch24h,
                 "price_change_percentage_7d_in_currency": ch7d,
             })
-            print(f"  [{sym_name}] Yahoo ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}% | 数据点: {len(closes)}")
+            print(f"  [{sym_name}] Yahoo ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}% | K线: {len(closes)}条")
 
         except Exception as e:
-            print(f"  [{sym_name}] yfinance 失败: {e}")
-            # 尝试用缓存数据
-            if sym_name in _ohlc_cache:
-                cached = _ohlc_cache[sym_name]
-                closes = cached["closes"]
-                volumes = cached["volumes"]
-                price = closes[-1] if closes else 0
-                ch24h = 0
-                ch7d = 0
-                history[sym_name] = {"prices": closes, "volumes": volumes}
-                market_list.append({
-                    "id": sym_name, "symbol": sym_name,
-                    "current_price": price,
-                    "price_change_percentage_1h_in_currency": 0,
-                    "price_change_percentage_24h": ch24h,
-                    "price_change_percentage_7d_in_currency": ch7d,
-                })
-                print(f"  [{sym_name}] 使用过期缓存数据")
-            else:
-                history[sym_name] = {"prices": [], "volumes": []}
+            print(f"  [{sym_name}] Yahoo 失败: {e}")
+            history[sym_name] = {"prices": [], "volumes": []}
 
     if not market_list:
-        raise Exception("所有币种数据获取失败")
-
+        raise Exception("Yahoo Finance 全部失败")
     return market_list, history
+
+
+# ============================================================
+# 数据源 2: CoinGecko (备选)
+# ============================================================
+def fetch_all_coingecko(coins):
+    market_list = []
+    history = {}
+    now = time_module.time()
+
+    # 批量拉价格
+    ids = ",".join(CG_IDS.values())
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd&include_24hr_change=true&include_7d_change=true"
+    price_data = http_get(url, timeout=TIMEOUT)
+
+    for sym_name, info in coins.items():
+        cg_id = CG_IDS.get(sym_name)
+        pd = price_data.get(cg_id, {})
+        price = pd.get("usd", 0)
+        if price <= 0:
+            history[sym_name] = {"prices": [], "volumes": []}
+            continue
+
+        ch24h = pd.get("usd_24h_change", 0) or 0
+        ch7d = pd.get("usd_7d_change", 0) or 0
+
+        # 拉取历史K线
+        try:
+            hist_url = f"https://api.coingecko.com/api/v3/coins/{cg_id}/market_chart?vs_currency=usd&days=90&interval=daily"
+            hist_data = http_get(hist_url, timeout=TIMEOUT)
+            closes = [round(p[1], 6) for p in hist_data.get("prices", [])]
+            volumes = [v[1] for v in hist_data.get("total_volumes", [])]
+        except Exception:
+            closes = [price]
+            volumes = [0]
+
+        _ohlc_cache[sym_name] = {"closes": closes, "volumes": volumes, "ts": now}
+        history[sym_name] = {"prices": closes, "volumes": volumes}
+        market_list.append({
+            "id": sym_name, "symbol": sym_name,
+            "current_price": price,
+            "price_change_percentage_1h_in_currency": 0,
+            "price_change_percentage_24h": ch24h,
+            "price_change_percentage_7d_in_currency": ch7d,
+        })
+        print(f"  [{sym_name}] CoinGecko ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
+
+    if not market_list:
+        raise Exception("CoinGecko 全部失败")
+    return market_list, history
+
+
+# ============================================================
+# 数据源 3: Binance (备选)
+# ============================================================
+def fetch_all_binance(coins):
+    market_list = []
+    history = {}
+    now = time_module.time()
+
+    for sym_name, info in coins.items():
+        inst_id = info["symbol"]
+        bn_sym = BN_SYMBOLS.get(inst_id, inst_id)
+
+        try:
+            # 价格
+            tick = http_get(f"https://api.binance.com/api/v3/ticker/24hr?symbol={bn_sym}", timeout=TIMEOUT)
+            price = float(tick["lastPrice"])
+            ch24h = float(tick.get("priceChangePercent", 0))
+
+            # K线
+            kline = http_get(f"https://api.binance.com/api/v3/klines?symbol={bn_sym}&interval=1d&limit=90", timeout=TIMEOUT)
+            closes = [round(float(k[4]), 6) for k in kline]
+            volumes = [float(k[5]) for k in kline]
+
+            ch7d = 0
+            if len(closes) >= 8 and closes[-8] > 0:
+                ch7d = (price - closes[-8]) / closes[-8] * 100
+
+            _ohlc_cache[sym_name] = {"closes": closes, "volumes": volumes, "ts": now}
+            history[sym_name] = {"prices": closes, "volumes": volumes}
+            market_list.append({
+                "id": sym_name, "symbol": sym_name,
+                "current_price": price,
+                "price_change_percentage_1h_in_currency": 0,
+                "price_change_percentage_24h": ch24h,
+                "price_change_percentage_7d_in_currency": ch7d,
+            })
+            print(f"  [{sym_name}] Binance ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
+
+        except Exception as e:
+            print(f"  [{sym_name}] Binance 失败: {e}")
+            history[sym_name] = {"prices": [], "volumes": []}
+
+    if not market_list:
+        raise Exception("Binance 全部失败")
+    return market_list, history
+
+
+# ============================================================
+# 数据入口: 多源自动切换 (Yahoo > CoinGecko > Binance)
+# ============================================================
+def fetch_all_data(coins):
+    sources = [
+        ("Yahoo Finance", fetch_all_yahoo),
+        ("CoinGecko",     fetch_all_coingecko),
+        ("Binance",       fetch_all_binance),
+    ]
+
+    for name, func in sources:
+        try:
+            print(f"  尝试: {name}...")
+            result = func(coins)
+            print(f"  ✓ {name} 成功")
+            return result
+        except Exception as e:
+            print(f"  ✗ {name}: {e}")
+
+    raise Exception("所有数据源均失败: Yahoo / CoinGecko / Binance")
 
 
 # ============================================================
