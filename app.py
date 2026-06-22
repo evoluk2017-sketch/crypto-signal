@@ -20,6 +20,25 @@ from notifier import Notifier
 app = Flask(__name__)
 
 # ============================================================
+# CORS — 允许跨域访问（前端仪表盘在不同域名）
+# ============================================================
+@app.after_request
+def add_cors_headers(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        resp = app.make_default_options_response()
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        return resp
+
+# ============================================================
 # 加载配置
 # ============================================================
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")

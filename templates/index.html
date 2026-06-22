@@ -552,7 +552,7 @@ async function fetchData() {
     if (data.status === 'fetching') {
       statusDot.className = 'status-dot';
       statusText.textContent = '正在拉取数据…';
-    } else if (data.status === 'running') {
+    } else if (data.status === 'running' || data.status === 'synced') {
       statusDot.className = 'status-dot';
       statusText.textContent = '引擎运行中';
     } else {
