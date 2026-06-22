@@ -487,9 +487,14 @@ body {
 }
 .coin-card { animation: cardIn 0.5s ease both; }
 .coin-card:nth-child(1) { animation-delay: 0s; }
-.coin-card:nth-child(2) { animation-delay: 0.07s; }
-.coin-card:nth-child(3) { animation-delay: 0.14s; }
-.coin-card:nth-child(4) { animation-delay: 0.21s; }
+.coin-card:nth-child(2) { animation-delay: 0.05s; }
+.coin-card:nth-child(3) { animation-delay: 0.10s; }
+.coin-card:nth-child(4) { animation-delay: 0.15s; }
+.coin-card:nth-child(5) { animation-delay: 0.20s; }
+.coin-card:nth-child(6) { animation-delay: 0.25s; }
+.coin-card:nth-child(7) { animation-delay: 0.30s; }
+.coin-card:nth-child(8) { animation-delay: 0.35s; }
+.coin-card:nth-child(9) { animation-delay: 0.40s; }
 
 /* Mobile */
 @media (max-width: 480px) {
@@ -544,8 +549,12 @@ body {
 // Config
 // ============================================================
 const BACKEND_URL = 'https://crypto-signal-0ydo.onrender.com';
-const COIN_ORDER = ['BTC', 'ETH', 'BNB', 'SOL'];
-const COIN_NAMES = { BTC: 'Bitcoin', ETH: 'Ethereum', BNB: 'Binance Coin', SOL: 'Solana' };
+const COIN_ORDER = ['BTC', 'ETH', 'BNB', 'SOL', 'ZEC', 'ASTER', 'TAO', 'ENA', 'GENIUS'];
+const COIN_NAMES = {
+  BTC: 'Bitcoin', ETH: 'Ethereum', BNB: 'Binance Coin', SOL: 'Solana',
+  ZEC: 'Zcash', ASTER: 'Aster', TAO: 'Bittensor', ENA: 'Ethena', GENIUS: 'Genius'
+};
+const COIN_DECIMALS = { BTC: 0, ETH: 0, BNB: 2, SOL: 2, ZEC: 2, ASTER: 4, TAO: 2, ENA: 4, GENIUS: 6 };
 
 // Official logos from cryptologos.cc
 const COIN_LOGOS = {
@@ -553,6 +562,11 @@ const COIN_LOGOS = {
   ETH: 'https://cryptologos.cc/logos/ethereum-eth-logo.svg',
   BNB: 'https://cryptologos.cc/logos/bnb-bnb-logo.svg',
   SOL: 'https://cryptologos.cc/logos/solana-sol-logo.svg',
+  ZEC: 'https://cryptologos.cc/logos/zcash-zec-logo.svg',
+  TAO: 'https://cryptologos.cc/logos/bittensor-tao-logo.svg',
+  ENA: 'https://cryptologos.cc/logos/ethena-ena-logo.svg',
+  ASTER: 'https://cryptologos.cc/logos/aster-astr-logo.svg',
+  GENIUS: 'https://cryptologos.cc/logos/genius-geni-logo.svg',
 };
 
 let COUNTDOWN = 60;
@@ -631,7 +645,7 @@ function bbBarInfo(upper, mid, lower) {
 // ============================================================
 function renderCard(data) {
   const s = data;
-  const dec = (s.sym === 'BNB' || s.sym === 'SOL') ? 2 : (s.sym === 'ETH' ? 1 : 0);
+  const dec = COIN_DECIMALS[s.sym] || 2;
   const [dirLabel, dirClass] = directionInfo(s.score);
   const ch24h = s.changes?.['24h'] || 0;
   const ch7d  = s.changes?.['7d']  || 0;

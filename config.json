@@ -3,7 +3,12 @@
     "BTC": {"symbol": "BTC-USDT", "decimals": 0, "name": "Bitcoin"},
     "ETH": {"symbol": "ETH-USDT", "decimals": 0, "name": "Ethereum"},
     "BNB": {"symbol": "BNB-USDT", "decimals": 2, "name": "Binance Coin"},
-    "SOL": {"symbol": "SOL-USDT", "decimals": 2, "name": "Solana"}
+    "SOL": {"symbol": "SOL-USDT", "decimals": 2, "name": "Solana"},
+    "ZEC": {"symbol": "ZEC-USDT", "decimals": 2, "name": "Zcash"},
+    "ASTER": {"symbol": "ASTER-USDT", "decimals": 4, "name": "Aster"},
+    "TAO": {"symbol": "TAO-USDT", "decimals": 2, "name": "Bittensor", "source": "coingecko", "coin_id": "bittensor"},
+    "ENA": {"symbol": "ENA-USDT", "decimals": 4, "name": "Ethena"},
+    "GENIUS": {"symbol": "GENIUS-USDT", "decimals": 6, "name": "Genius", "source": "coingecko", "coin_id": "genius-token"}
   },
   "poll_interval_seconds": 90,
   "alert_cooldown_minutes": 30,
