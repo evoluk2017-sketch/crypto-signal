@@ -1,6 +1,6 @@
 """
 CryptoSig Engine — 六因子评分 + 入场/止损/止盈计算
-多数据源自动切换: CoinGecko → OKX → Binance
+多数据源自动切换: CoinGecko → Coinbase → OKX → Binance
 """
 import time as time_module
 import json
@@ -10,15 +10,16 @@ from datetime import datetime
 
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "CryptoSignalEngine/2.0"})
+REQUEST_TIMEOUT = 8  # 短超时，快速切换数据源
 
 # ============================================================
-# 数据缓存 (CoinGecko 历史数据缓存1小时)
+# 缓存 (历史数据缓存1小时)
 # ============================================================
 _ohlc_cache = {}
 _ohlc_cache_time = {}
-_CACHE_TTL = 3600  # 1小时
+_CACHE_TTL = 3600
 
-# CoinGecko ID 映射
+# 符号映射
 COIN_ID_MAP = {
     "BTC": "bitcoin",
     "ETH": "ethereum",
@@ -27,99 +28,108 @@ COIN_ID_MAP = {
 }
 
 
-# ============================================================
-# 数据源一: CoinGecko (全球通用, Render 美国友好)
-# ============================================================
-def fetch_coingecko_prices():
-    """一次调用获取4个币的当前价 + 24h变化 + 24h成交量"""
-    ids = "bitcoin,ethereum,binancecoin,solana"
-    url = (
-        f"https://api.coingecko.com/api/v3/simple/price"
-        f"?ids={ids}&vs_currencies=usd"
-        f"&include_24hr_change=true&include_24hr_vol=true"
-    )
-    resp = requests.get(url, timeout=15)
+def _get(url, timeout=None):
+    """统一 HTTP GET，短超时"""
+    t = timeout or REQUEST_TIMEOUT
+    resp = requests.get(url, timeout=t)
     resp.raise_for_status()
     return resp.json()
 
 
+# ============================================================
+# 数据源一: CoinGecko (全球)
+# ============================================================
+def fetch_coingecko_prices():
+    ids = "bitcoin,ethereum,binancecoin,solana"
+    url = (f"https://api.coingecko.com/api/v3/simple/price"
+           f"?ids={ids}&vs_currencies=usd"
+           f"&include_24hr_change=true&include_24hr_vol=true")
+    return _get(url)
+
+
 def fetch_coingecko_history(coin_id):
-    """获取90天价格+成交量历史，缓存1小时"""
     now = time_module.time()
     if coin_id in _ohlc_cache and now - _ohlc_cache_time.get(coin_id, 0) < _CACHE_TTL:
         return _ohlc_cache[coin_id]
-
-    url = (
-        f"https://api.coingecko.com/api/v3/coins/{coin_id}"
-        f"/market_chart?vs_currency=usd&days=90"
-    )
-    resp = requests.get(url, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
-
-    prices = [p[1] for p in data.get("prices", [])]
-    volumes = [v[1] for v in data.get("total_volumes", [])]
-
-    result = {"prices": prices, "volumes": volumes}
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=90"
+    data = _get(url, timeout=15)
+    result = {
+        "prices": [p[1] for p in data.get("prices", [])],
+        "volumes": [v[1] for v in data.get("total_volumes", [])],
+    }
     _ohlc_cache[coin_id] = result
     _ohlc_cache_time[coin_id] = now
     return result
 
 
-def fetch_coingecko_all(coins):
-    """CoinGecko 全量数据"""
+# ============================================================
+# 符号映射 (Coinbase / Binance)
+# ============================================================
+CB_SYMBOLS = {
+    "BTC-USDT": "BTC-USD",
+    "ETH-USDT": "ETH-USD",
+    "SOL-USDT": "SOL-USD",
+    # BNB 不在 Coinbase 上
+}
+
+
+def fetch_coinbase_all(coins):
+    """Coinbase: 只返回支持的币种 (BTC/ETH/SOL), 不支持的返回 None"""
     market_list = []
     history = {}
-
-    # 批量获取当前价
-    price_data = fetch_coingecko_prices()
+    missing = []
 
     for sym_name, info in coins.items():
-        coin_id = COIN_ID_MAP.get(sym_name)
-        try:
-            pd = price_data.get(coin_id, {})
-            price = pd.get("usd", 0)
-            ch24h = pd.get("usd_24h_change", 0) or 0
+        inst_id = info["symbol"]
+        cb_sym = CB_SYMBOLS.get(inst_id)
+        if not cb_sym:
+            missing.append(sym_name)
+            continue
 
-            hist = fetch_coingecko_history(coin_id)
-            closes = hist["prices"]
-            volumes = hist["volumes"]
+        try:
+            # 当前价
+            spot = _get(f"https://api.coinbase.com/v2/prices/{cb_sym}/spot")
+            price = float(spot["data"]["amount"])
+
+            # 日K线 (最多90天)
+            candles = _get(
+                f"https://api.exchange.coinbase.com/products/{cb_sym}/candles"
+                f"?granularity=86400",
+                timeout=12,
+            )
+            # 每条: [time, low, high, open, close, volume]
+            candles_sorted = sorted(candles, key=lambda x: x[0])
+            closes = [float(c[4]) for c in candles_sorted]
+            volumes = [float(c[5]) for c in candles_sorted]
+
+            ch24h = 0
+            if len(closes) >= 2 and closes[-2] > 0:
+                ch24h = (price - closes[-2]) / closes[-2] * 100
 
             ch7d = 0
-            if len(closes) >= 8:
-                ch7d = (price - closes[-8]) / closes[-8] * 100 if closes[-8] > 0 else 0
+            if len(closes) >= 8 and closes[-8] > 0:
+                ch7d = (price - closes[-8]) / closes[-8] * 100
 
-            history[sym_name] = {
-                "prices": closes,
-                "volumes": volumes,
-            }
-
+            history[sym_name] = {"prices": closes, "volumes": volumes}
             market_list.append({
-                "id": sym_name,
-                "symbol": sym_name,
+                "id": sym_name, "symbol": sym_name,
                 "current_price": price,
                 "price_change_percentage_1h_in_currency": 0,
                 "price_change_percentage_24h": ch24h,
                 "price_change_percentage_7d_in_currency": ch7d,
             })
-            print(f"  [{sym_name}] CoinGecko ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
+            print(f"  [{sym_name}] Coinbase ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
 
         except Exception as e:
-            print(f"  [{sym_name}] CoinGecko 失败: {e}, 尝试备选...")
-            raise  # 让上层 fallback
+            print(f"  [{sym_name}] Coinbase 失败: {e}")
+            raise
 
     return market_list, history
 
 
 # ============================================================
-# 数据源二: OKX (备选)
+# 数据源三: OKX
 # ============================================================
-def _okx_get(url, timeout=15):
-    resp = requests.get(url, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
-
-
 def fetch_okx_all(coins):
     market_list = []
     history = {}
@@ -127,11 +137,7 @@ def fetch_okx_all(coins):
     for sym_name, info in coins.items():
         inst_id = info["symbol"]
         try:
-            # 行情
-            tick = _okx_get(
-                f"https://www.okx.com/api/v5/market/ticker?instId={inst_id}",
-                timeout=10,
-            )
+            tick = _get(f"https://www.okx.com/api/v5/market/ticker?instId={inst_id}")
             if tick.get("code") != "0" or not tick.get("data"):
                 raise Exception(f"OKX ticker 异常: {tick}")
             t = tick["data"][0]
@@ -139,53 +145,46 @@ def fetch_okx_all(coins):
             open24h = float(t.get("open24h", 0))
             ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
 
-            # K线
-            kdata = _okx_get(
+            kdata = _get(
                 f"https://www.okx.com/api/v5/market/history-candles"
                 f"?instId={inst_id}&bar=1D&limit=90",
-                timeout=10,
+                timeout=12,
             )
             if kdata.get("code") != "0" or not kdata.get("data"):
-                raise Exception(f"OKX kline 异常: {kdata}")
+                raise Exception(f"OKX kline 异常")
             klines = kdata["data"]
             closes = [float(k[4]) for k in klines[::-1]]
             volumes = [float(k[6]) for k in klines[::-1]]
 
             ch7d = 0
-            if len(closes) >= 8:
-                ch7d = (price - closes[-8]) / closes[-8] * 100 if closes[-8] > 0 else 0
+            if len(closes) >= 8 and closes[-8] > 0:
+                ch7d = (price - closes[-8]) / closes[-8] * 100
 
             history[sym_name] = {"prices": closes, "volumes": volumes}
-
             market_list.append({
-                "id": sym_name,
-                "symbol": sym_name,
+                "id": sym_name, "symbol": sym_name,
                 "current_price": price,
                 "price_change_percentage_1h_in_currency": 0,
                 "price_change_percentage_24h": ch24h,
                 "price_change_percentage_7d_in_currency": ch7d,
             })
             print(f"  [{sym_name}] OKX ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
-
         except Exception as e:
-            import traceback
             print(f"  [{sym_name}] OKX 失败: {e}")
-            traceback.print_exc()
             raise
-
     return market_list, history
 
 
 # ============================================================
-# 数据源三: Binance (最后备选)
+# 数据源四: Binance
 # ============================================================
 BINANCE_MIRRORS = [
     "https://api.binance.com",
     "https://api1.binance.com",
     "https://api2.binance.com",
     "https://api3.binance.com",
+    "https://api.binance.us",
 ]
-
 SYMBOL_MAP = {
     "BTC-USDT": "BTCUSDT",
     "ETH-USDT": "ETHUSDT",
@@ -194,11 +193,11 @@ SYMBOL_MAP = {
 }
 
 
-def _binance_get(endpoint, timeout=12):
+def _binance_get(endpoint):
     for mirror in BINANCE_MIRRORS:
         try:
             url = f"{mirror}{endpoint}"
-            resp = requests.get(url, timeout=timeout)
+            resp = requests.get(url, timeout=REQUEST_TIMEOUT)
             resp.raise_for_status()
             return resp.json()
         except Exception:
@@ -214,62 +213,179 @@ def fetch_binance_all(coins):
         inst_id = info["symbol"]
         bin_sym = SYMBOL_MAP.get(inst_id, inst_id.replace("-", ""))
         try:
-            tick = _binance_get(f"/api/v3/ticker/24hr?symbol={bin_sym}", timeout=10)
+            tick = _binance_get(f"/api/v3/ticker/24hr?symbol={bin_sym}")
             price = float(tick["lastPrice"])
             open24h = float(tick["openPrice"])
             ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
 
-            kdata = _binance_get(
-                f"/api/v3/klines?symbol={bin_sym}&interval=1d&limit=90",
-                timeout=10,
-            )
+            kdata = _binance_get(f"/api/v3/klines?symbol={bin_sym}&interval=1d&limit=90")
             closes = [float(k[4]) for k in kdata]
             volumes = [float(k[5]) for k in kdata]
 
             ch7d = 0
-            if len(closes) >= 8:
-                ch7d = (price - closes[-8]) / closes[-8] * 100 if closes[-8] > 0 else 0
+            if len(closes) >= 8 and closes[-8] > 0:
+                ch7d = (price - closes[-8]) / closes[-8] * 100
 
             history[sym_name] = {"prices": closes, "volumes": volumes}
-
             market_list.append({
-                "id": sym_name,
-                "symbol": sym_name,
+                "id": sym_name, "symbol": sym_name,
                 "current_price": price,
                 "price_change_percentage_1h_in_currency": 0,
                 "price_change_percentage_24h": ch24h,
                 "price_change_percentage_7d_in_currency": ch7d,
             })
             print(f"  [{sym_name}] Binance ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
-
         except Exception as e:
             print(f"  [{sym_name}] Binance 失败: {e}")
             raise
-
     return market_list, history
 
 
 # ============================================================
-# 数据入口: 多源自动切换
+# 数据入口: 按币种混合 (BTC/ETH/SOL→Coinbase, BNB→OKX/Binance)
 # ============================================================
-def fetch_all_data(coins):
-    """依次尝试 CoinGecko → OKX → Binance"""
-    sources = [
-        ("CoinGecko", fetch_coingecko_all),
-        ("OKX", fetch_okx_all),
-        ("Binance", fetch_binance_all),
-    ]
+def _try_single_coin(sym_name, info):
+    """尝试所有数据源获取单个币种, 返回 (market, history) 或异常"""
+    inst_id = info["symbol"]
 
-    for name, func in sources:
+    # 1) Coinbase (美国原生, 最可靠) - BTC/ETH/SOL
+    cb_sym = CB_SYMBOLS.get(inst_id)
+    if cb_sym:
         try:
-            print(f"  数据源: {name}...")
-            result = func(coins)
-            print(f"  ✓ {name} 成功")
-            return result
-        except Exception as e:
-            print(f"  ✗ {name} 失败: {e}")
+            spot = _get(f"https://api.coinbase.com/v2/prices/{cb_sym}/spot")
+            price = float(spot["data"]["amount"])
+            candles = _get(
+                f"https://api.exchange.coinbase.com/products/{cb_sym}/candles?granularity=86400",
+                timeout=12,
+            )
+            candles_sorted = sorted(candles, key=lambda x: x[0])
+            closes = [float(c[4]) for c in candles_sorted]
+            volumes = [float(c[5]) for c in candles_sorted]
 
-    raise Exception("所有数据源均不可用: CoinGecko / OKX / Binance")
+            ch24h = 0
+            if len(closes) >= 2 and closes[-2] > 0:
+                ch24h = (price - closes[-2]) / closes[-2] * 100
+            ch7d = 0
+            if len(closes) >= 8 and closes[-8] > 0:
+                ch7d = (price - closes[-8]) / closes[-8] * 100
+
+            return {
+                "id": sym_name, "symbol": sym_name,
+                "current_price": price,
+                "price_change_percentage_1h_in_currency": 0,
+                "price_change_percentage_24h": ch24h,
+                "price_change_percentage_7d_in_currency": ch7d,
+            }, {"prices": closes, "volumes": volumes}, "Coinbase"
+        except Exception as e:
+            print(f"  [{sym_name}] Coinbase 失败: {e}")
+
+    # 2) CoinGecko
+    try:
+        coin_id = COIN_ID_MAP[sym_name]
+        pd = _get(
+            f"https://api.coingecko.com/api/v3/simple/price"
+            f"?ids={coin_id}&vs_currencies=usd&include_24hr_change=true"
+        )
+        pd = pd.get(coin_id, {})
+        price = pd.get("usd", 0)
+        if price <= 0:
+            raise Exception("价格异常")
+        ch24h = pd.get("usd_24h_change", 0) or 0
+
+        hist = fetch_coingecko_history(coin_id)
+        closes = hist["prices"]
+        volumes = hist["volumes"]
+
+        ch7d = 0
+        if len(closes) >= 8 and closes[-8] > 0:
+            ch7d = (price - closes[-8]) / closes[-8] * 100
+
+        return {
+            "id": sym_name, "symbol": sym_name,
+            "current_price": price,
+            "price_change_percentage_1h_in_currency": 0,
+            "price_change_percentage_24h": ch24h,
+            "price_change_percentage_7d_in_currency": ch7d,
+        }, {"prices": closes, "volumes": volumes}, "CoinGecko"
+    except Exception as e:
+        print(f"  [{sym_name}] CoinGecko 失败: {e}")
+
+    # 3) OKX
+    try:
+        tick = _get(f"https://www.okx.com/api/v5/market/ticker?instId={inst_id}")
+        if tick.get("code") != "0" or not tick.get("data"):
+            raise Exception("OKX ticker 异常")
+        t = tick["data"][0]
+        price = float(t["last"])
+        open24h = float(t.get("open24h", 0))
+        ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
+
+        kdata = _get(
+            f"https://www.okx.com/api/v5/market/history-candles"
+            f"?instId={inst_id}&bar=1D&limit=90",
+            timeout=12,
+        )
+        if kdata.get("code") != "0" or not kdata.get("data"):
+            raise Exception("OKX kline 异常")
+        klines = kdata["data"]
+        closes = [float(k[4]) for k in klines[::-1]]
+        volumes = [float(k[6]) for k in klines[::-1]]
+
+        ch7d = 0
+        if len(closes) >= 8 and closes[-8] > 0:
+            ch7d = (price - closes[-8]) / closes[-8] * 100
+
+        return {
+            "id": sym_name, "symbol": sym_name,
+            "current_price": price,
+            "price_change_percentage_1h_in_currency": 0,
+            "price_change_percentage_24h": ch24h,
+            "price_change_percentage_7d_in_currency": ch7d,
+        }, {"prices": closes, "volumes": volumes}, "OKX"
+    except Exception as e:
+        print(f"  [{sym_name}] OKX 失败: {e}")
+
+    # 4) Binance (最后备选)
+    bin_sym = SYMBOL_MAP.get(inst_id, inst_id.replace("-", ""))
+    tick = _binance_get(f"/api/v3/ticker/24hr?symbol={bin_sym}")
+    price = float(tick["lastPrice"])
+    open24h = float(tick["openPrice"])
+    ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
+    kdata = _binance_get(f"/api/v3/klines?symbol={bin_sym}&interval=1d&limit=90")
+    closes = [float(k[4]) for k in kdata]
+    volumes = [float(k[5]) for k in kdata]
+    ch7d = 0
+    if len(closes) >= 8 and closes[-8] > 0:
+        ch7d = (price - closes[-8]) / closes[-8] * 100
+
+    return {
+        "id": sym_name, "symbol": sym_name,
+        "current_price": price,
+        "price_change_percentage_1h_in_currency": 0,
+        "price_change_percentage_24h": ch24h,
+        "price_change_percentage_7d_in_currency": ch7d,
+    }, {"prices": closes, "volumes": volumes}, "Binance"
+
+
+def fetch_all_data(coins):
+    """按币种维度混合数据源"""
+    market_list = []
+    history = {}
+
+    for sym_name, info in coins.items():
+        try:
+            mkt, hist, src = _try_single_coin(sym_name, info)
+            market_list.append(mkt)
+            history[sym_name] = hist
+            print(f"  [{sym_name}] {src} ${mkt['current_price']:,.{info['decimals']}f} | 24h {mkt['price_change_percentage_24h']:+.2f}%")
+        except Exception as e:
+            print(f"  [{sym_name}] 所有数据源均失败: {e}")
+            history[sym_name] = {"prices": [], "volumes": []}
+
+    if not market_list:
+        raise Exception("所有币种在所有数据源均获取失败")
+
+    return market_list, history
 
 
 # ============================================================
@@ -303,9 +419,9 @@ def rsi(prices, period=14):
 def macd_histogram(prices):
     if len(prices) < 26:
         return 0, 0, 0
-    ema12 = ema(prices, 12)
-    ema26 = ema(prices, 26)
-    macd_line = ema12 - ema26
+    ema12_v = ema(prices, 12)
+    ema26_v = ema(prices, 26)
+    macd_line = ema12_v - ema26_v
     signal_line = 0.15 * macd_line
     return macd_line, signal_line, macd_line - signal_line
 
@@ -441,7 +557,7 @@ def calculate_levels(price, prices, atr_val, signal_score, bb_upper, bb_lower, e
         tp2 = round(bb_upper + atr_val * 0.5, 2)
         rr1 = round((tp1 - price) / (price - sl_val), 2) if price > sl_val else 0
         return "long", {
-            "direction": "做多 LONG",
+            "direction": "\u505a\u591a LONG",
             "entry_zone": f"${entry_zone[0]} ~ ${entry_zone[1]}",
             "stop_loss": f"${round(sl_val, 2)}",
             "take_profit_1": f"${tp1}",
@@ -455,7 +571,7 @@ def calculate_levels(price, prices, atr_val, signal_score, bb_upper, bb_lower, e
         tp2 = round(bb_lower - atr_val * 0.5, 2)
         rr1 = round((price - tp1) / (sl_val - price), 2) if sl_val > price else 0
         return "short", {
-            "direction": "做空 SHORT",
+            "direction": "\u505a\u7a7a SHORT",
             "entry_zone": f"${entry_zone[0]} ~ ${entry_zone[1]}",
             "stop_loss": f"${round(sl_val, 2)}",
             "take_profit_1": f"${tp1}",
@@ -464,10 +580,10 @@ def calculate_levels(price, prices, atr_val, signal_score, bb_upper, bb_lower, e
         }
     else:
         return "wait", {
-            "direction": "观望 WAIT",
-            "entry_zone": "—",
-            "stop_loss": "—",
-            "take_profit_1": "—",
-            "take_profit_2": "—",
-            "risk_reward_1": "—",
+            "direction": "\u89c2\u671b WAIT",
+            "entry_zone": "\u2014",
+            "stop_loss": "\u2014",
+            "take_profit_1": "\u2014",
+            "take_profit_2": "\u2014",
+            "risk_reward_1": "\u2014",
         }
