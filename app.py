@@ -251,16 +251,31 @@ def health():
 
 
 # ============================================================
-# 启动
+# 后台引擎自动启动 (gunicorn 和 python app.py 均适用)
 # ============================================================
-if __name__ == "__main__":
-    load_state()
+_engine_started = False
 
-    # 启动后台引擎
+
+def _start_engine():
+    global _engine_started
+    if _engine_started:
+        return
+    _engine_started = True
+    load_state()
     engine_thread = threading.Thread(target=engine_loop, daemon=True)
     engine_thread.start()
+    port = int(os.environ.get("PORT", 5000))
+    print(f"[{datetime.now():%H:%M:%S}] 后台引擎线程已启动 → 监听端口 {port}")
 
-    # 启动 Flask
+
+# gunicorn 加载时触发（若是直接 python app.py 则在下方触发）
+_start_engine()
+
+
+# ============================================================
+# 启动（直接运行）
+# ============================================================
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"[{datetime.now():%H:%M:%S}] Web 服务启动: http://0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
