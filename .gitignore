@@ -19,8 +19,8 @@ env/
 .DS_Store
 Thumbs.db
 
-# Config with secrets (use config.example.json for template)
-config.json
+# Config example (keep as template reference)
+# config.json IS committed for Render deployment — set secrets via env vars instead
 
 # Signal data
 signal_data.json

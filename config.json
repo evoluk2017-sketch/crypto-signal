@@ -1,0 +1,28 @@
+{
+  "coins": {
+    "BTC": {"symbol": "BTC-USDT", "decimals": 0, "name": "Bitcoin"},
+    "ETH": {"symbol": "ETH-USDT", "decimals": 0, "name": "Ethereum"},
+    "BNB": {"symbol": "BNB-USDT", "decimals": 2, "name": "Binance Coin"},
+    "SOL": {"symbol": "SOL-USDT", "decimals": 2, "name": "Solana"}
+  },
+  "poll_interval_seconds": 90,
+  "alert_cooldown_minutes": 30,
+  "alert_threshold": {"long": 75, "short": 25},
+  "notifications": {
+    "serverchan": {
+      "enabled": true,
+      "sendkey": "SCT368399TJgngzqLUArf3mcXrbNAP5hTc"
+    },
+    "telegram": {
+      "enabled": false,
+      "comment": "去 @BotFather 创建 Bot 获取 token",
+      "bot_token": "",
+      "chat_id": ""
+    },
+    "dingtalk": {
+      "enabled": false,
+      "comment": "钉钉群设置 → 智能群助手 → 添加机器人 → 自定义 → 获取 Webhook URL",
+      "webhook_url": ""
+    }
+  }
+}
