@@ -1,6 +1,6 @@
 """
 CryptoSig Engine — 六因子评分 + 入场/止损/止盈计算
-OKX API 数据源（云端原生，无需翻墙）
+Binance API 数据源（全球可用，Render 美国服务器友好）
 """
 import time
 import json
@@ -10,47 +10,60 @@ from datetime import datetime
 
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "CryptoSignalEngine/2.0"})
+# Binance 多镜像自动切换
+BINANCE_MIRRORS = [
+    "https://api.binance.com",
+    "https://api1.binance.com",
+    "https://api2.binance.com",
+    "https://api3.binance.com",
+]
 
 
 # ============================================================
-# 数据获取 (OKX)
+# 数据获取 (Binance)
 # ============================================================
-def fetch_json(url, max_retries=2, timeout=15):
-    for attempt in range(max_retries):
+def _binance_get(endpoint, timeout=12):
+    """带镜像切换的 Binance 请求"""
+    for mirror in BINANCE_MIRRORS:
         try:
-            resp = SESSION.get(url, timeout=timeout)
+            url = f"{mirror}{endpoint}"
+            resp = requests.get(url, timeout=timeout, headers={"User-Agent": "CryptoSignalEngine/2.0"})
             resp.raise_for_status()
             return resp.json()
-        except Exception as e:
-            if attempt < max_retries - 1:
-                time.sleep(2)
-            else:
-                raise
+        except Exception:
+            continue
+    raise Exception("所有 Binance 镜像不可用")
 
 
-def fetch_okx_price(inst_id):
-    url = f"https://www.okx.com/api/v5/market/ticker?instId={inst_id}"
-    data = fetch_json(url, timeout=10)
-    if data.get("code") == "0" and data.get("data"):
-        t = data["data"][0]
-        return {
-            "price": float(t["last"]),
-            "ch24h": float(t.get("open24h", 0)),
-            "open24h": float(t.get("open24h", 0)),
-            "vol24h": float(t.get("vol24h", 0)) if t.get("vol24h") else 0,
-        }
-    raise Exception(f"OKX ticker error: {data}")
+# Binance 符号映射：内部名 -> Binance 交易对
+SYMBOL_MAP = {
+    "BTC-USDT": "BTCUSDT",
+    "ETH-USDT": "ETHUSDT",
+    "BNB-USDT": "BNBUSDT",
+    "SOL-USDT": "SOLUSDT",
+}
 
 
-def fetch_okx_kline(inst_id, bar="1D", limit=90):
-    url = f"https://www.okx.com/api/v5/market/history-candles?instId={inst_id}&bar={bar}&limit={limit}"
-    data = fetch_json(url, timeout=10)
-    if data.get("code") == "0" and data.get("data"):
-        klines = data["data"]
-        closes = [float(k[4]) for k in klines[::-1]]
-        volumes = [float(k[6]) for k in klines[::-1]]
-        return closes, volumes
-    raise Exception(f"OKX kline error: {data}")
+def fetch_binance_price(bin_symbol):
+    """获取当前价格和24h变化"""
+    data = _binance_get(f"/api/v3/ticker/24hr?symbol={bin_symbol}", timeout=10)
+    price = float(data["lastPrice"])
+    open24h = float(data["openPrice"])
+    ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
+    return {
+        "price": price,
+        "open24h": open24h,
+        "ch24h": ch24h,
+        "vol24h": float(data.get("volume", 0)),
+    }
+
+
+def fetch_binance_klines(bin_symbol, limit=90):
+    """获取日K线数据"""
+    data = _binance_get(f"/api/v3/klines?symbol={bin_symbol}&interval=1d&limit={limit}", timeout=10)
+    closes = [float(k[4]) for k in data]  # 收盘价
+    volumes = [float(k[5]) for k in data]  # 成交量
+    return closes, volumes
 
 
 def fetch_all_data(coins):
@@ -59,14 +72,12 @@ def fetch_all_data(coins):
 
     for sym_name, info in coins.items():
         inst_id = info["symbol"]
+        bin_sym = SYMBOL_MAP.get(inst_id, inst_id.replace("-", ""))
         try:
-            tick = fetch_okx_price(inst_id)
+            tick = fetch_binance_price(bin_sym)
             price = tick["price"]
-            closes, volumes = fetch_okx_kline(inst_id)
-
-            ch24h = 0
-            if tick["open24h"] > 0:
-                ch24h = (price - tick["open24h"]) / tick["open24h"] * 100
+            ch24h = tick["ch24h"]
+            closes, volumes = fetch_binance_klines(bin_sym)
 
             ch7d = 0
             if len(closes) >= 8:
@@ -85,10 +96,12 @@ def fetch_all_data(coins):
                 "price_change_percentage_24h": ch24h,
                 "price_change_percentage_7d_in_currency": ch7d,
             })
-            print(f"  [{sym_name}] OKX ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
+            print(f"  [{sym_name}] Binance ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
 
         except Exception as e:
+            import traceback
             print(f"  [{sym_name}] 数据获取失败: {type(e).__name__}: {e}")
+            traceback.print_exc()
             history[sym_name] = {"prices": [], "volumes": []}
 
     return market_list, history
