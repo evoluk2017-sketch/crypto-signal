@@ -245,6 +245,34 @@ def api_signal_detail(symbol):
         })
 
 
+@app.route("/api/sync", methods=["POST"])
+def api_sync():
+    """本地引擎数据同步接口"""
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify({"error": "empty body"}), 400
+
+    with state_lock:
+        state["results"] = data.get("results", {})
+        state["last_update"] = data.get("last_update", datetime.now().isoformat())
+        state["engine_status"] = "synced"
+
+        # 合并历史记录
+        new_history = data.get("history", [])
+        for record in new_history:
+            exists = any(
+                h.get("time") == record.get("time") and h.get("symbol") == record.get("symbol")
+                for h in state["history"]
+            )
+            if not exists:
+                state["history"].insert(0, record)
+        if len(state["history"]) > 50:
+            state["history"] = state["history"][:50]
+
+    print(f"[{datetime.now():%H:%M:%S}] 收到本地引擎同步: {len(data.get('results', {}))}个币种")
+    return jsonify({"ok": True, "updated": len(data.get("results", {}))})
+
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok", "time": datetime.now().isoformat()})
