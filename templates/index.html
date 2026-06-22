@@ -546,15 +546,32 @@ async function fetchData() {
     const data = await resp.json();
 
     lastApiSuccess = true;
-    document.getElementById('statusDot').className = 'status-dot';
-    document.getElementById('statusText').textContent = '引擎运行中';
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+
+    if (data.status === 'fetching') {
+      statusDot.className = 'status-dot';
+      statusText.textContent = '正在拉取数据…';
+    } else if (data.status === 'running') {
+      statusDot.className = 'status-dot';
+      statusText.textContent = '引擎运行中';
+    } else {
+      statusDot.className = 'status-dot error';
+      statusText.textContent = data.status || '未知状态';
+    }
 
     const grid = document.getElementById('cardGrid');
-    grid.innerHTML = COIN_ORDER.map(sym => {
+    const cards = COIN_ORDER.map(sym => {
       const r = data.results?.[sym];
-      if (!r) return '';
+      if (!r) {
+        // 显示占位卡片（loading 或无数据）
+        return renderLoadingCard(sym);
+      }
       return renderCard({ ...r, sym });
     }).join('');
+
+    // fallback: 如果所有卡片都是 loading 但后端状态是 running（不应发生）
+    grid.innerHTML = cards || renderPlaceholder();
 
     document.getElementById('historyList').innerHTML = renderHistory(data.history);
     COUNTDOWN = (data.config?.poll_interval || 60);
@@ -568,6 +585,16 @@ async function fetchData() {
       document.getElementById('cardGrid').innerHTML = renderPlaceholder();
     }
   }
+}
+
+function renderLoadingCard(sym) {
+  return `
+    <div class="coin-card wait" style="display:flex;align-items:center;justify-content:center;min-height:280px;flex-direction:column;text-align:center">
+      <div style="font-size:36px;margin-bottom:12px;opacity:0.4">⏳</div>
+      <div style="color:var(--text-dim);font-size:14px;font-weight:600;margin-bottom:6px">${sym}</div>
+      <div style="color:var(--text-muted);font-size:12px">数据加载中，请稍候…</div>
+    </div>
+  `;
 }
 
 function renderPlaceholder() {
