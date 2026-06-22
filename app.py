@@ -63,8 +63,8 @@ state = {
     "history": [],       # 最近50条信号历史 [{time, symbol, score, direction}, ...]
     "last_update": None,
     "engine_status": "starting",
-    "fear_greed": {},    # {current: {value, classification}, history: [...]}
-    "news": [],          # [{title, link, description, source, pub_date}, ...]
+    "market_indicators": {},  # {fear_greed, btc_dominance, bull_bear, market_trend}
+    "daily_events": {},       # {date, events: [{title, summary, link}], updated_at}
 }
 state_lock = threading.Lock()
 
@@ -254,8 +254,8 @@ def api_status():
             "last_update": state["last_update"],
             "results": state["results"],
             "history": state["history"],
-            "fear_greed": state.get("fear_greed", {}),
-            "news": state.get("news", [])[:30],  # 最近30条
+            "market_indicators": state.get("market_indicators", {}),
+            "daily_events": state.get("daily_events", {}),
             "config": {
                 "coins": list(COINS.keys()),
                 "poll_interval": POLL_INTERVAL,
@@ -299,22 +299,10 @@ def api_sync():
         state["last_update"] = data.get("last_update", datetime.now().isoformat())
         state["engine_status"] = "synced"
 
-        # 恐慌贪婪指数
-        fng = data.get("fear_greed")
-        if fng:
-            state["fear_greed"] = fng
-
-        # 新闻
-        new_news = data.get("news", [])
-        if new_news:
-            existing_links = {n.get("link") for n in state.get("news", [])}
-            for item in new_news:
-                if item.get("link") not in existing_links:
-                    state["news"].insert(0, item)
-                    existing_links.add(item.get("link"))
-            # 只保留最近200条
-            if len(state["news"]) > 200:
-                state["news"] = state["news"][:200]
+        # 市场情绪指标
+        indicators = data.get("market_indicators")
+        if indicators:
+            state["market_indicators"] = indicators
 
         # 合并历史记录
         new_history = data.get("history", [])
@@ -330,6 +318,22 @@ def api_sync():
 
     print(f"[{datetime.now():%H:%M:%S}] 收到本地引擎同步: {len(data.get('results', {}))}个币种")
     return jsonify({"ok": True, "updated": len(data.get("results", {}))})
+
+
+@app.route("/api/daily_events", methods=["POST"])
+def api_daily_events():
+    """接收每日币圈大事件（由定时任务推送）"""
+    data = request.get_json(force=True)
+    if not data:
+        return jsonify({"error": "empty body"}), 400
+    with state_lock:
+        state["daily_events"] = {
+            "date": data.get("date", datetime.now().strftime("%Y-%m-%d")),
+            "events": data.get("events", []),
+            "updated_at": datetime.now().isoformat(),
+        }
+    print(f"[{datetime.now():%H:%M:%S}] 收到每日大事件: {len(data.get('events', []))}条 ({data.get('date', '?')})")
+    return jsonify({"ok": True})
 
 
 @app.route("/health")
