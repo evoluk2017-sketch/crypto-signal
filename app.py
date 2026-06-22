@@ -204,9 +204,16 @@ def engine_loop():
                         print(f"  [{sym}] 📤 信号推送 → {ch_str} | 评分 {score}/100 | {'做多' if score >= THRESHOLD_LONG else '做空'}")
 
             with state_lock:
-                state["results"] = results
-                state["last_update"] = now.isoformat()
-                state["engine_status"] = "running"
+                # 只有拉到数据才覆盖，否则保留本地引擎推送的数据
+                if results:
+                    state["results"] = results
+                    state["last_update"] = now.isoformat()
+                    state["engine_status"] = "running"
+                elif state["engine_status"] == "synced":
+                    # 本地已推送数据，保持不动
+                    pass
+                else:
+                    state["engine_status"] = "running"
 
             # 打印摘要
             print(f"\n[{now:%H:%M:%S}] 刷新完成")

@@ -195,6 +195,12 @@ body {
   object-fit: contain;
   display: block;
 }
+/* ETH classic blue-purple background */
+.coin-logo-wrap.eth-logo {
+  background: linear-gradient(135deg, #627eea 0%, #8b6cf5 100%) !important;
+  border: 1px solid rgba(98, 126, 234, 0.35);
+  box-shadow: 0 0 16px rgba(98, 126, 234, 0.2);
+}
 .coin-info .symbol {
   font-size: 16px;
   font-weight: 800;
@@ -658,7 +664,7 @@ function renderCard(data) {
       <!-- Header -->
       <div class="card-header">
         <div class="coin-identity">
-          <div class="coin-logo-wrap">
+          <div class="coin-logo-wrap${s.sym === 'ETH' ? ' eth-logo' : ''}">
             <img src="${COIN_LOGOS[s.sym]}" alt="${s.sym}" onerror="this.style.display='none';this.parentElement.textContent='${s.sym.charAt(0)}';this.parentElement.style.fontWeight='800';this.parentElement.style.fontSize='18px';this.parentElement.style.color='var(--text)';">
           </div>
           <div class="coin-info">
@@ -783,8 +789,8 @@ function renderCard(data) {
 function renderLoadingCard(sym) {
   return `
     <div class="coin-card wait" style="display:flex;align-items:center;justify-content:center;min-height:380px;flex-direction:column;text-align:center">
-      <div class="coin-logo-wrap" style="width:52px;height:52px;opacity:0.35;margin-bottom:14px">
-        <img src="${COIN_LOGOS[sym]}" alt="${sym}" style="width:38px;height:38px" onerror="this.style.display='none'">
+      <div class="coin-logo-wrap${sym === 'ETH' ? ' eth-logo' : ''}" style="width:52px;height:52px;margin-bottom:14px">
+        <img src="${COIN_LOGOS[sym]}" alt="${sym}" style="width:38px;height:38px;opacity:0.35" onerror="this.style.display='none';this.parentElement.textContent='${sym.charAt(0)}';this.parentElement.style.fontWeight='800';this.parentElement.style.fontSize='20px';this.parentElement.style.color='rgba(255,255,255,0.65)'">
       </div>
       <div style="color:var(--text-dim);font-size:16px;font-weight:700">${sym} — ${COIN_NAMES[sym]}</div>
       <div style="color:var(--text-muted);font-size:13px;margin-top:6px">数据加载中，请稍候…</div>
