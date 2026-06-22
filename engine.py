@@ -1,8 +1,8 @@
 """
 CryptoSig Engine — 六因子评分 + 入场/止损/止盈计算
-Binance API 数据源（全球可用，Render 美国服务器友好）
+多数据源自动切换: CoinGecko → OKX → Binance
 """
-import time
+import time as time_module
 import json
 import math
 import requests
@@ -10,78 +10,84 @@ from datetime import datetime
 
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "CryptoSignalEngine/2.0"})
-# Binance 多镜像自动切换
-BINANCE_MIRRORS = [
-    "https://api.binance.com",
-    "https://api1.binance.com",
-    "https://api2.binance.com",
-    "https://api3.binance.com",
-]
-
 
 # ============================================================
-# 数据获取 (Binance)
+# 数据缓存 (CoinGecko 历史数据缓存1小时)
 # ============================================================
-def _binance_get(endpoint, timeout=12):
-    """带镜像切换的 Binance 请求"""
-    for mirror in BINANCE_MIRRORS:
-        try:
-            url = f"{mirror}{endpoint}"
-            resp = requests.get(url, timeout=timeout, headers={"User-Agent": "CryptoSignalEngine/2.0"})
-            resp.raise_for_status()
-            return resp.json()
-        except Exception:
-            continue
-    raise Exception("所有 Binance 镜像不可用")
+_ohlc_cache = {}
+_ohlc_cache_time = {}
+_CACHE_TTL = 3600  # 1小时
 
-
-# Binance 符号映射：内部名 -> Binance 交易对
-SYMBOL_MAP = {
-    "BTC-USDT": "BTCUSDT",
-    "ETH-USDT": "ETHUSDT",
-    "BNB-USDT": "BNBUSDT",
-    "SOL-USDT": "SOLUSDT",
+# CoinGecko ID 映射
+COIN_ID_MAP = {
+    "BTC": "bitcoin",
+    "ETH": "ethereum",
+    "BNB": "binancecoin",
+    "SOL": "solana",
 }
 
 
-def fetch_binance_price(bin_symbol):
-    """获取当前价格和24h变化"""
-    data = _binance_get(f"/api/v3/ticker/24hr?symbol={bin_symbol}", timeout=10)
-    price = float(data["lastPrice"])
-    open24h = float(data["openPrice"])
-    ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
-    return {
-        "price": price,
-        "open24h": open24h,
-        "ch24h": ch24h,
-        "vol24h": float(data.get("volume", 0)),
-    }
+# ============================================================
+# 数据源一: CoinGecko (全球通用, Render 美国友好)
+# ============================================================
+def fetch_coingecko_prices():
+    """一次调用获取4个币的当前价 + 24h变化 + 24h成交量"""
+    ids = "bitcoin,ethereum,binancecoin,solana"
+    url = (
+        f"https://api.coingecko.com/api/v3/simple/price"
+        f"?ids={ids}&vs_currencies=usd"
+        f"&include_24hr_change=true&include_24hr_vol=true"
+    )
+    resp = requests.get(url, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
 
 
-def fetch_binance_klines(bin_symbol, limit=90):
-    """获取日K线数据"""
-    data = _binance_get(f"/api/v3/klines?symbol={bin_symbol}&interval=1d&limit={limit}", timeout=10)
-    closes = [float(k[4]) for k in data]  # 收盘价
-    volumes = [float(k[5]) for k in data]  # 成交量
-    return closes, volumes
+def fetch_coingecko_history(coin_id):
+    """获取90天价格+成交量历史，缓存1小时"""
+    now = time_module.time()
+    if coin_id in _ohlc_cache and now - _ohlc_cache_time.get(coin_id, 0) < _CACHE_TTL:
+        return _ohlc_cache[coin_id]
+
+    url = (
+        f"https://api.coingecko.com/api/v3/coins/{coin_id}"
+        f"/market_chart?vs_currency=usd&days=90"
+    )
+    resp = requests.get(url, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+
+    prices = [p[1] for p in data.get("prices", [])]
+    volumes = [v[1] for v in data.get("total_volumes", [])]
+
+    result = {"prices": prices, "volumes": volumes}
+    _ohlc_cache[coin_id] = result
+    _ohlc_cache_time[coin_id] = now
+    return result
 
 
-def fetch_all_data(coins):
+def fetch_coingecko_all(coins):
+    """CoinGecko 全量数据"""
     market_list = []
     history = {}
 
+    # 批量获取当前价
+    price_data = fetch_coingecko_prices()
+
     for sym_name, info in coins.items():
-        inst_id = info["symbol"]
-        bin_sym = SYMBOL_MAP.get(inst_id, inst_id.replace("-", ""))
+        coin_id = COIN_ID_MAP.get(sym_name)
         try:
-            tick = fetch_binance_price(bin_sym)
-            price = tick["price"]
-            ch24h = tick["ch24h"]
-            closes, volumes = fetch_binance_klines(bin_sym)
+            pd = price_data.get(coin_id, {})
+            price = pd.get("usd", 0)
+            ch24h = pd.get("usd_24h_change", 0) or 0
+
+            hist = fetch_coingecko_history(coin_id)
+            closes = hist["prices"]
+            volumes = hist["volumes"]
 
             ch7d = 0
             if len(closes) >= 8:
-                ch7d = (price - closes[-8]) / closes[-8] * 100
+                ch7d = (price - closes[-8]) / closes[-8] * 100 if closes[-8] > 0 else 0
 
             history[sym_name] = {
                 "prices": closes,
@@ -96,15 +102,174 @@ def fetch_all_data(coins):
                 "price_change_percentage_24h": ch24h,
                 "price_change_percentage_7d_in_currency": ch7d,
             })
-            print(f"  [{sym_name}] Binance ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
+            print(f"  [{sym_name}] CoinGecko ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
+
+        except Exception as e:
+            print(f"  [{sym_name}] CoinGecko 失败: {e}, 尝试备选...")
+            raise  # 让上层 fallback
+
+    return market_list, history
+
+
+# ============================================================
+# 数据源二: OKX (备选)
+# ============================================================
+def _okx_get(url, timeout=15):
+    resp = requests.get(url, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def fetch_okx_all(coins):
+    market_list = []
+    history = {}
+
+    for sym_name, info in coins.items():
+        inst_id = info["symbol"]
+        try:
+            # 行情
+            tick = _okx_get(
+                f"https://www.okx.com/api/v5/market/ticker?instId={inst_id}",
+                timeout=10,
+            )
+            if tick.get("code") != "0" or not tick.get("data"):
+                raise Exception(f"OKX ticker 异常: {tick}")
+            t = tick["data"][0]
+            price = float(t["last"])
+            open24h = float(t.get("open24h", 0))
+            ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
+
+            # K线
+            kdata = _okx_get(
+                f"https://www.okx.com/api/v5/market/history-candles"
+                f"?instId={inst_id}&bar=1D&limit=90",
+                timeout=10,
+            )
+            if kdata.get("code") != "0" or not kdata.get("data"):
+                raise Exception(f"OKX kline 异常: {kdata}")
+            klines = kdata["data"]
+            closes = [float(k[4]) for k in klines[::-1]]
+            volumes = [float(k[6]) for k in klines[::-1]]
+
+            ch7d = 0
+            if len(closes) >= 8:
+                ch7d = (price - closes[-8]) / closes[-8] * 100 if closes[-8] > 0 else 0
+
+            history[sym_name] = {"prices": closes, "volumes": volumes}
+
+            market_list.append({
+                "id": sym_name,
+                "symbol": sym_name,
+                "current_price": price,
+                "price_change_percentage_1h_in_currency": 0,
+                "price_change_percentage_24h": ch24h,
+                "price_change_percentage_7d_in_currency": ch7d,
+            })
+            print(f"  [{sym_name}] OKX ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
 
         except Exception as e:
             import traceback
-            print(f"  [{sym_name}] 数据获取失败: {type(e).__name__}: {e}")
+            print(f"  [{sym_name}] OKX 失败: {e}")
             traceback.print_exc()
-            history[sym_name] = {"prices": [], "volumes": []}
+            raise
 
     return market_list, history
+
+
+# ============================================================
+# 数据源三: Binance (最后备选)
+# ============================================================
+BINANCE_MIRRORS = [
+    "https://api.binance.com",
+    "https://api1.binance.com",
+    "https://api2.binance.com",
+    "https://api3.binance.com",
+]
+
+SYMBOL_MAP = {
+    "BTC-USDT": "BTCUSDT",
+    "ETH-USDT": "ETHUSDT",
+    "BNB-USDT": "BNBUSDT",
+    "SOL-USDT": "SOLUSDT",
+}
+
+
+def _binance_get(endpoint, timeout=12):
+    for mirror in BINANCE_MIRRORS:
+        try:
+            url = f"{mirror}{endpoint}"
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception:
+            continue
+    raise Exception("所有 Binance 镜像不可用")
+
+
+def fetch_binance_all(coins):
+    market_list = []
+    history = {}
+
+    for sym_name, info in coins.items():
+        inst_id = info["symbol"]
+        bin_sym = SYMBOL_MAP.get(inst_id, inst_id.replace("-", ""))
+        try:
+            tick = _binance_get(f"/api/v3/ticker/24hr?symbol={bin_sym}", timeout=10)
+            price = float(tick["lastPrice"])
+            open24h = float(tick["openPrice"])
+            ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
+
+            kdata = _binance_get(
+                f"/api/v3/klines?symbol={bin_sym}&interval=1d&limit=90",
+                timeout=10,
+            )
+            closes = [float(k[4]) for k in kdata]
+            volumes = [float(k[5]) for k in kdata]
+
+            ch7d = 0
+            if len(closes) >= 8:
+                ch7d = (price - closes[-8]) / closes[-8] * 100 if closes[-8] > 0 else 0
+
+            history[sym_name] = {"prices": closes, "volumes": volumes}
+
+            market_list.append({
+                "id": sym_name,
+                "symbol": sym_name,
+                "current_price": price,
+                "price_change_percentage_1h_in_currency": 0,
+                "price_change_percentage_24h": ch24h,
+                "price_change_percentage_7d_in_currency": ch7d,
+            })
+            print(f"  [{sym_name}] Binance ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
+
+        except Exception as e:
+            print(f"  [{sym_name}] Binance 失败: {e}")
+            raise
+
+    return market_list, history
+
+
+# ============================================================
+# 数据入口: 多源自动切换
+# ============================================================
+def fetch_all_data(coins):
+    """依次尝试 CoinGecko → OKX → Binance"""
+    sources = [
+        ("CoinGecko", fetch_coingecko_all),
+        ("OKX", fetch_okx_all),
+        ("Binance", fetch_binance_all),
+    ]
+
+    for name, func in sources:
+        try:
+            print(f"  数据源: {name}...")
+            result = func(coins)
+            print(f"  ✓ {name} 成功")
+            return result
+        except Exception as e:
+            print(f"  ✗ {name} 失败: {e}")
+
+    raise Exception("所有数据源均不可用: CoinGecko / OKX / Binance")
 
 
 # ============================================================
