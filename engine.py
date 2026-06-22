@@ -1,389 +1,161 @@
 """
 CryptoSig Engine — 六因子评分 + 入场/止损/止盈计算
-多数据源自动切换: CoinGecko → Coinbase → OKX → Binance
+数据源: Yahoo Finance (yfinance) — 全球可用, 云端不封
 """
 import time as time_module
 import json
 import math
-import requests
+import traceback
 from datetime import datetime
 
-SESSION = requests.Session()
-SESSION.headers.update({"User-Agent": "CryptoSignalEngine/2.0"})
-REQUEST_TIMEOUT = 8  # 短超时，快速切换数据源
+import yfinance as yf
 
 # ============================================================
-# 缓存 (历史数据缓存1小时)
+# 缓存 (历史数据缓存1小时, yfinance下载慢)
 # ============================================================
 _ohlc_cache = {}
-_ohlc_cache_time = {}
-_CACHE_TTL = 3600
+_CACHE_TTL = 3600  # 1小时
 
-# 符号映射
-COIN_ID_MAP = {
-    "BTC": "bitcoin",
-    "ETH": "ethereum",
-    "BNB": "binancecoin",
-    "SOL": "solana",
-}
-
-
-def _get(url, timeout=None):
-    """统一 HTTP GET，短超时"""
-    t = timeout or REQUEST_TIMEOUT
-    resp = requests.get(url, timeout=t)
-    resp.raise_for_status()
-    return resp.json()
-
-
-# ============================================================
-# 数据源一: CoinGecko (全球)
-# ============================================================
-def fetch_coingecko_prices():
-    ids = "bitcoin,ethereum,binancecoin,solana"
-    url = (f"https://api.coingecko.com/api/v3/simple/price"
-           f"?ids={ids}&vs_currencies=usd"
-           f"&include_24hr_change=true&include_24hr_vol=true")
-    return _get(url)
-
-
-def fetch_coingecko_history(coin_id):
-    now = time_module.time()
-    if coin_id in _ohlc_cache and now - _ohlc_cache_time.get(coin_id, 0) < _CACHE_TTL:
-        return _ohlc_cache[coin_id]
-    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=90"
-    data = _get(url, timeout=15)
-    result = {
-        "prices": [p[1] for p in data.get("prices", [])],
-        "volumes": [v[1] for v in data.get("total_volumes", [])],
-    }
-    _ohlc_cache[coin_id] = result
-    _ohlc_cache_time[coin_id] = now
-    return result
-
-
-# ============================================================
-# 符号映射 (Coinbase / Binance)
-# ============================================================
-CB_SYMBOLS = {
+# yfinance 符号
+YF_SYMBOLS = {
     "BTC-USDT": "BTC-USD",
     "ETH-USDT": "ETH-USD",
+    "BNB-USDT": "BNB-USD",
     "SOL-USDT": "SOL-USD",
-    # BNB 不在 Coinbase 上
 }
 
 
-def fetch_coinbase_all(coins):
-    """Coinbase: 只返回支持的币种 (BTC/ETH/SOL), 不支持的返回 None"""
-    market_list = []
-    history = {}
-    missing = []
-
-    for sym_name, info in coins.items():
-        inst_id = info["symbol"]
-        cb_sym = CB_SYMBOLS.get(inst_id)
-        if not cb_sym:
-            missing.append(sym_name)
-            continue
-
-        try:
-            # 当前价
-            spot = _get(f"https://api.coinbase.com/v2/prices/{cb_sym}/spot")
-            price = float(spot["data"]["amount"])
-
-            # 日K线 (最多90天)
-            candles = _get(
-                f"https://api.exchange.coinbase.com/products/{cb_sym}/candles"
-                f"?granularity=86400",
-                timeout=12,
-            )
-            # 每条: [time, low, high, open, close, volume]
-            candles_sorted = sorted(candles, key=lambda x: x[0])
-            closes = [float(c[4]) for c in candles_sorted]
-            volumes = [float(c[5]) for c in candles_sorted]
-
-            ch24h = 0
-            if len(closes) >= 2 and closes[-2] > 0:
-                ch24h = (price - closes[-2]) / closes[-2] * 100
-
-            ch7d = 0
-            if len(closes) >= 8 and closes[-8] > 0:
-                ch7d = (price - closes[-8]) / closes[-8] * 100
-
-            history[sym_name] = {"prices": closes, "volumes": volumes}
-            market_list.append({
-                "id": sym_name, "symbol": sym_name,
-                "current_price": price,
-                "price_change_percentage_1h_in_currency": 0,
-                "price_change_percentage_24h": ch24h,
-                "price_change_percentage_7d_in_currency": ch7d,
-            })
-            print(f"  [{sym_name}] Coinbase ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
-
-        except Exception as e:
-            print(f"  [{sym_name}] Coinbase 失败: {e}")
-            raise
-
-    return market_list, history
-
-
 # ============================================================
-# 数据源三: OKX
+# 数据获取 (Yahoo Finance)
 # ============================================================
-def fetch_okx_all(coins):
-    market_list = []
-    history = {}
-
-    for sym_name, info in coins.items():
-        inst_id = info["symbol"]
-        try:
-            tick = _get(f"https://www.okx.com/api/v5/market/ticker?instId={inst_id}")
-            if tick.get("code") != "0" or not tick.get("data"):
-                raise Exception(f"OKX ticker 异常: {tick}")
-            t = tick["data"][0]
-            price = float(t["last"])
-            open24h = float(t.get("open24h", 0))
-            ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
-
-            kdata = _get(
-                f"https://www.okx.com/api/v5/market/history-candles"
-                f"?instId={inst_id}&bar=1D&limit=90",
-                timeout=12,
-            )
-            if kdata.get("code") != "0" or not kdata.get("data"):
-                raise Exception(f"OKX kline 异常")
-            klines = kdata["data"]
-            closes = [float(k[4]) for k in klines[::-1]]
-            volumes = [float(k[6]) for k in klines[::-1]]
-
-            ch7d = 0
-            if len(closes) >= 8 and closes[-8] > 0:
-                ch7d = (price - closes[-8]) / closes[-8] * 100
-
-            history[sym_name] = {"prices": closes, "volumes": volumes}
-            market_list.append({
-                "id": sym_name, "symbol": sym_name,
-                "current_price": price,
-                "price_change_percentage_1h_in_currency": 0,
-                "price_change_percentage_24h": ch24h,
-                "price_change_percentage_7d_in_currency": ch7d,
-            })
-            print(f"  [{sym_name}] OKX ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
-        except Exception as e:
-            print(f"  [{sym_name}] OKX 失败: {e}")
-            raise
-    return market_list, history
-
-
-# ============================================================
-# 数据源四: Binance
-# ============================================================
-BINANCE_MIRRORS = [
-    "https://api.binance.com",
-    "https://api1.binance.com",
-    "https://api2.binance.com",
-    "https://api3.binance.com",
-    "https://api.binance.us",
-]
-SYMBOL_MAP = {
-    "BTC-USDT": "BTCUSDT",
-    "ETH-USDT": "ETHUSDT",
-    "BNB-USDT": "BNBUSDT",
-    "SOL-USDT": "SOLUSDT",
-}
-
-
-def _binance_get(endpoint):
-    for mirror in BINANCE_MIRRORS:
-        try:
-            url = f"{mirror}{endpoint}"
-            resp = requests.get(url, timeout=REQUEST_TIMEOUT)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception:
-            continue
-    raise Exception("所有 Binance 镜像不可用")
-
-
-def fetch_binance_all(coins):
-    market_list = []
-    history = {}
-
-    for sym_name, info in coins.items():
-        inst_id = info["symbol"]
-        bin_sym = SYMBOL_MAP.get(inst_id, inst_id.replace("-", ""))
-        try:
-            tick = _binance_get(f"/api/v3/ticker/24hr?symbol={bin_sym}")
-            price = float(tick["lastPrice"])
-            open24h = float(tick["openPrice"])
-            ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
-
-            kdata = _binance_get(f"/api/v3/klines?symbol={bin_sym}&interval=1d&limit=90")
-            closes = [float(k[4]) for k in kdata]
-            volumes = [float(k[5]) for k in kdata]
-
-            ch7d = 0
-            if len(closes) >= 8 and closes[-8] > 0:
-                ch7d = (price - closes[-8]) / closes[-8] * 100
-
-            history[sym_name] = {"prices": closes, "volumes": volumes}
-            market_list.append({
-                "id": sym_name, "symbol": sym_name,
-                "current_price": price,
-                "price_change_percentage_1h_in_currency": 0,
-                "price_change_percentage_24h": ch24h,
-                "price_change_percentage_7d_in_currency": ch7d,
-            })
-            print(f"  [{sym_name}] Binance ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}%")
-        except Exception as e:
-            print(f"  [{sym_name}] Binance 失败: {e}")
-            raise
-    return market_list, history
-
-
-# ============================================================
-# 数据入口: 按币种混合 (BTC/ETH/SOL→Coinbase, BNB→OKX/Binance)
-# ============================================================
-def _try_single_coin(sym_name, info):
-    """尝试所有数据源获取单个币种, 返回 (market, history) 或异常"""
-    inst_id = info["symbol"]
-
-    # 1) Coinbase (美国原生, 最可靠) - BTC/ETH/SOL
-    cb_sym = CB_SYMBOLS.get(inst_id)
-    if cb_sym:
-        try:
-            spot = _get(f"https://api.coinbase.com/v2/prices/{cb_sym}/spot")
-            price = float(spot["data"]["amount"])
-            candles = _get(
-                f"https://api.exchange.coinbase.com/products/{cb_sym}/candles?granularity=86400",
-                timeout=12,
-            )
-            candles_sorted = sorted(candles, key=lambda x: x[0])
-            closes = [float(c[4]) for c in candles_sorted]
-            volumes = [float(c[5]) for c in candles_sorted]
-
-            ch24h = 0
-            if len(closes) >= 2 and closes[-2] > 0:
-                ch24h = (price - closes[-2]) / closes[-2] * 100
-            ch7d = 0
-            if len(closes) >= 8 and closes[-8] > 0:
-                ch7d = (price - closes[-8]) / closes[-8] * 100
-
-            return {
-                "id": sym_name, "symbol": sym_name,
-                "current_price": price,
-                "price_change_percentage_1h_in_currency": 0,
-                "price_change_percentage_24h": ch24h,
-                "price_change_percentage_7d_in_currency": ch7d,
-            }, {"prices": closes, "volumes": volumes}, "Coinbase"
-        except Exception as e:
-            print(f"  [{sym_name}] Coinbase 失败: {e}")
-
-    # 2) CoinGecko
-    try:
-        coin_id = COIN_ID_MAP[sym_name]
-        pd = _get(
-            f"https://api.coingecko.com/api/v3/simple/price"
-            f"?ids={coin_id}&vs_currencies=usd&include_24hr_change=true"
-        )
-        pd = pd.get(coin_id, {})
-        price = pd.get("usd", 0)
-        if price <= 0:
-            raise Exception("价格异常")
-        ch24h = pd.get("usd_24h_change", 0) or 0
-
-        hist = fetch_coingecko_history(coin_id)
-        closes = hist["prices"]
-        volumes = hist["volumes"]
-
-        ch7d = 0
-        if len(closes) >= 8 and closes[-8] > 0:
-            ch7d = (price - closes[-8]) / closes[-8] * 100
-
-        return {
-            "id": sym_name, "symbol": sym_name,
-            "current_price": price,
-            "price_change_percentage_1h_in_currency": 0,
-            "price_change_percentage_24h": ch24h,
-            "price_change_percentage_7d_in_currency": ch7d,
-        }, {"prices": closes, "volumes": volumes}, "CoinGecko"
-    except Exception as e:
-        print(f"  [{sym_name}] CoinGecko 失败: {e}")
-
-    # 3) OKX
-    try:
-        tick = _get(f"https://www.okx.com/api/v5/market/ticker?instId={inst_id}")
-        if tick.get("code") != "0" or not tick.get("data"):
-            raise Exception("OKX ticker 异常")
-        t = tick["data"][0]
-        price = float(t["last"])
-        open24h = float(t.get("open24h", 0))
-        ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
-
-        kdata = _get(
-            f"https://www.okx.com/api/v5/market/history-candles"
-            f"?instId={inst_id}&bar=1D&limit=90",
-            timeout=12,
-        )
-        if kdata.get("code") != "0" or not kdata.get("data"):
-            raise Exception("OKX kline 异常")
-        klines = kdata["data"]
-        closes = [float(k[4]) for k in klines[::-1]]
-        volumes = [float(k[6]) for k in klines[::-1]]
-
-        ch7d = 0
-        if len(closes) >= 8 and closes[-8] > 0:
-            ch7d = (price - closes[-8]) / closes[-8] * 100
-
-        return {
-            "id": sym_name, "symbol": sym_name,
-            "current_price": price,
-            "price_change_percentage_1h_in_currency": 0,
-            "price_change_percentage_24h": ch24h,
-            "price_change_percentage_7d_in_currency": ch7d,
-        }, {"prices": closes, "volumes": volumes}, "OKX"
-    except Exception as e:
-        print(f"  [{sym_name}] OKX 失败: {e}")
-
-    # 4) Binance (最后备选)
-    bin_sym = SYMBOL_MAP.get(inst_id, inst_id.replace("-", ""))
-    tick = _binance_get(f"/api/v3/ticker/24hr?symbol={bin_sym}")
-    price = float(tick["lastPrice"])
-    open24h = float(tick["openPrice"])
-    ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
-    kdata = _binance_get(f"/api/v3/klines?symbol={bin_sym}&interval=1d&limit=90")
-    closes = [float(k[4]) for k in kdata]
-    volumes = [float(k[5]) for k in kdata]
-    ch7d = 0
-    if len(closes) >= 8 and closes[-8] > 0:
-        ch7d = (price - closes[-8]) / closes[-8] * 100
-
-    return {
-        "id": sym_name, "symbol": sym_name,
-        "current_price": price,
-        "price_change_percentage_1h_in_currency": 0,
-        "price_change_percentage_24h": ch24h,
-        "price_change_percentage_7d_in_currency": ch7d,
-    }, {"prices": closes, "volumes": volumes}, "Binance"
-
-
 def fetch_all_data(coins):
-    """按币种维度混合数据源"""
+    """一次批量下载所有币种的90天日线 + 当前价"""
     market_list = []
     history = {}
+    now = time_module.time()
 
+    # 批量下载 (yfinance 支持多ticker一次下载)
+    yf_symbols = []
+    sym_order = []
     for sym_name, info in coins.items():
+        yfs = YF_SYMBOLS.get(info["symbol"], info["symbol"].replace("-", "") + "-USD")
+        yf_symbols.append(yfs)
+        sym_order.append((sym_name, info, yfs))
+
+    # 检查缓存: 如果有90天缓存, 只拉最近1天更新
+    use_cache = all(
+        sym_name in _ohlc_cache and now - _ohlc_cache[sym_name]["ts"] < _CACHE_TTL
+        for sym_name, _, _ in sym_order
+    )
+
+    if use_cache:
+        # 快速模式: 只更新最新价
+        print("  快速模式: 使用缓存历史数据, 仅更新最新价")
         try:
-            mkt, hist, src = _try_single_coin(sym_name, info)
-            market_list.append(mkt)
-            history[sym_name] = hist
-            print(f"  [{sym_name}] {src} ${mkt['current_price']:,.{info['decimals']}f} | 24h {mkt['price_change_percentage_24h']:+.2f}%")
+            tickers = yf.Tickers(" ".join(yf_symbols))
         except Exception as e:
-            print(f"  [{sym_name}] 所有数据源均失败: {e}")
-            history[sym_name] = {"prices": [], "volumes": []}
+            print(f"  yfinance 快速更新失败: {e}, 回退到完整下载")
+            use_cache = False
+
+    if not use_cache:
+        # 完整模式: 下载90天数据
+        print("  下载90天数据 (yfinance)...")
+        try:
+            tickers = yf.Tickers(" ".join(yf_symbols))
+        except Exception as e:
+            print(f"  yfinance 初始化失败: {e}")
+            raise Exception(f"yfinance 不可用: {e}")
+
+    for sym_name, info, yfs in sym_order:
+        try:
+            ticker = tickers.tickers.get(yfs)
+            if not ticker:
+                raise Exception(f"找不到 ticker: {yfs}")
+
+            if use_cache:
+                cached = _ohlc_cache[sym_name]
+                closes = cached["closes"]
+                volumes = cached["volumes"]
+
+                # 用 fast_info 获取最新价
+                try:
+                    price = ticker.fast_info.last_price
+                    if not price or price <= 0:
+                        price = ticker.info.get("regularMarketPrice", 0)
+                except Exception:
+                    hist_1d = ticker.history(period="1d")
+                    if not hist_1d.empty:
+                        price = float(hist_1d["Close"].iloc[-1])
+                    else:
+                        price = closes[-1] if closes else 0
+
+                ch24h = 0
+                if closes and len(closes) >= 2 and closes[-2] > 0:
+                    ch24h = (price - closes[-2]) / closes[-2] * 100
+            else:
+                # 完整下载90天
+                hist = ticker.history(period="90d")
+                if hist.empty:
+                    raise Exception("yfinance 返回空数据")
+
+                closes = [round(float(v), 6) for v in hist["Close"].tolist()]
+                volumes = [float(v) for v in hist["Volume"].tolist()]
+                price = closes[-1] if closes else 0
+
+                if price <= 0:
+                    raise Exception("价格为0")
+
+                ch24h = 0
+                if len(closes) >= 2 and closes[-2] > 0:
+                    ch24h = (price - closes[-2]) / closes[-2] * 100
+
+                # 缓存
+                _ohlc_cache[sym_name] = {
+                    "closes": closes,
+                    "volumes": volumes,
+                    "ts": now,
+                }
+
+            ch7d = 0
+            if len(closes) >= 8 and closes[-8] > 0:
+                ch7d = (price - closes[-8]) / closes[-8] * 100
+
+            history[sym_name] = {"prices": closes, "volumes": volumes}
+
+            market_list.append({
+                "id": sym_name,
+                "symbol": sym_name,
+                "current_price": price,
+                "price_change_percentage_1h_in_currency": 0,
+                "price_change_percentage_24h": ch24h,
+                "price_change_percentage_7d_in_currency": ch7d,
+            })
+            print(f"  [{sym_name}] Yahoo ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}% | 数据点: {len(closes)}")
+
+        except Exception as e:
+            print(f"  [{sym_name}] yfinance 失败: {e}")
+            # 尝试用缓存数据
+            if sym_name in _ohlc_cache:
+                cached = _ohlc_cache[sym_name]
+                closes = cached["closes"]
+                volumes = cached["volumes"]
+                price = closes[-1] if closes else 0
+                ch24h = 0
+                ch7d = 0
+                history[sym_name] = {"prices": closes, "volumes": volumes}
+                market_list.append({
+                    "id": sym_name, "symbol": sym_name,
+                    "current_price": price,
+                    "price_change_percentage_1h_in_currency": 0,
+                    "price_change_percentage_24h": ch24h,
+                    "price_change_percentage_7d_in_currency": ch7d,
+                })
+                print(f"  [{sym_name}] 使用过期缓存数据")
+            else:
+                history[sym_name] = {"prices": [], "volumes": []}
 
     if not market_list:
-        raise Exception("所有币种在所有数据源均获取失败")
+        raise Exception("所有币种数据获取失败")
 
     return market_list, history
 
@@ -557,7 +329,7 @@ def calculate_levels(price, prices, atr_val, signal_score, bb_upper, bb_lower, e
         tp2 = round(bb_upper + atr_val * 0.5, 2)
         rr1 = round((tp1 - price) / (price - sl_val), 2) if price > sl_val else 0
         return "long", {
-            "direction": "\u505a\u591a LONG",
+            "direction": "做多 LONG",
             "entry_zone": f"${entry_zone[0]} ~ ${entry_zone[1]}",
             "stop_loss": f"${round(sl_val, 2)}",
             "take_profit_1": f"${tp1}",
@@ -571,7 +343,7 @@ def calculate_levels(price, prices, atr_val, signal_score, bb_upper, bb_lower, e
         tp2 = round(bb_lower - atr_val * 0.5, 2)
         rr1 = round((price - tp1) / (sl_val - price), 2) if sl_val > price else 0
         return "short", {
-            "direction": "\u505a\u7a7a SHORT",
+            "direction": "做空 SHORT",
             "entry_zone": f"${entry_zone[0]} ~ ${entry_zone[1]}",
             "stop_loss": f"${round(sl_val, 2)}",
             "take_profit_1": f"${tp1}",
@@ -580,10 +352,10 @@ def calculate_levels(price, prices, atr_val, signal_score, bb_upper, bb_lower, e
         }
     else:
         return "wait", {
-            "direction": "\u89c2\u671b WAIT",
-            "entry_zone": "\u2014",
-            "stop_loss": "\u2014",
-            "take_profit_1": "\u2014",
-            "take_profit_2": "\u2014",
-            "risk_reward_1": "\u2014",
+            "direction": "观望 WAIT",
+            "entry_zone": "—",
+            "stop_loss": "—",
+            "take_profit_1": "—",
+            "take_profit_2": "—",
+            "risk_reward_1": "—",
         }
