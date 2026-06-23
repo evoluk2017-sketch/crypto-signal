@@ -1,7 +1,8 @@
 """
 CryptoSig Engine — 六因子评分 + 入场/止损/止盈计算
-纯 requests 数据源: Yahoo Finance v8 API → CoinGecko → Binance 备选
-所有请求强制 8 秒超时, 绝不卡死
+纯 requests 数据源: OKX → Yahoo Finance → CoinGecko → Binance 备选
+所有请求强制 10 秒超时, 绝不卡死
+OKX 全球可用无需代理，作为首选数据源
 """
 import time as time_module
 import json
@@ -15,7 +16,7 @@ SESSION.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 })
 
-TIMEOUT = 8  # 所有请求统一 8 秒超时
+TIMEOUT = 10  # 所有请求统一 10 秒超时（OKX 偶尔需要稍长时间）
 
 # ============================================================
 # 缓存 (历史数据缓存60分钟)
@@ -23,12 +24,29 @@ TIMEOUT = 8  # 所有请求统一 8 秒超时
 _ohlc_cache = {}
 _CACHE_TTL = 3600
 
+# OKX 符号映射
+OKX_SYMBOLS = {
+    "BTC-USDT": "BTC-USDT", "ETH-USDT": "ETH-USDT", "BNB-USDT": "BNB-USDT",
+    "SOL-USDT": "SOL-USDT", "ZEC-USDT": "ZEC-USDT", "TRX-USDT": "TRX-USDT",
+    "DOGE-USDT": "DOGE-USDT", "XRP-USDT": "XRP-USDT",
+}
 # Yahoo Finance 符号
-YF_SYMBOLS = {"BTC-USDT": "BTC-USD", "ETH-USDT": "ETH-USD", "BNB-USDT": "BNB-USD", "SOL-USDT": "SOL-USD"}
+YF_SYMBOLS = {
+    "BTC-USDT": "BTC-USD", "ETH-USDT": "ETH-USD", "BNB-USDT": "BNB-USD",
+    "SOL-USDT": "SOL-USD", "ZEC-USDT": "ZEC-USD", "TRX-USDT": "TRX-USD",
+    "TAO-USDT": "TAO22941-USD", "DOGE-USDT": "DOGE-USD", "XRP-USDT": "XRP-USD",
+}
 # CoinGecko ID
-CG_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "BNB": "binancecoin", "SOL": "solana"}
+CG_IDS = {
+    "BTC": "bitcoin", "ETH": "ethereum", "BNB": "binancecoin", "SOL": "solana",
+    "ZEC": "zcash", "TRX": "tron", "TAO": "bittensor", "DOGE": "dogecoin", "XRP": "ripple",
+}
 # Binance 符号
-BN_SYMBOLS = {"BTC-USDT": "BTCUSDT", "ETH-USDT": "ETHUSDT", "BNB-USDT": "BNBUSDT", "SOL-USDT": "SOLUSDT"}
+BN_SYMBOLS = {
+    "BTC-USDT": "BTCUSDT", "ETH-USDT": "ETHUSDT", "BNB-USDT": "BNBUSDT",
+    "SOL-USDT": "SOLUSDT", "ZEC-USDT": "ZECUSDT", "TRX-USDT": "TRXUSDT",
+    "TAO-USDT": "TAOUSDT", "DOGE-USDT": "DOGEUSDT", "XRP-USDT": "XRPUSDT",
+}
 
 
 def http_get(url, timeout=TIMEOUT):
@@ -39,7 +57,65 @@ def http_get(url, timeout=TIMEOUT):
 
 
 # ============================================================
-# 数据源 1: Yahoo Finance v8 chart API (最可靠, 全球CDN)
+# 数据源 0: OKX (全球可用，无需代理，首选)
+# ============================================================
+def fetch_all_okx(coins):
+    """OKX API 批量获取价格和K线"""
+    market_list = []
+    history = {}
+    now = time_module.time()
+
+    for sym_name, info in coins.items():
+        inst_id = info["symbol"]
+        okx_sym = OKX_SYMBOLS.get(inst_id, inst_id)
+
+        try:
+            # 实时 ticker
+            tick = http_get(f"https://www.okx.com/api/v5/market/ticker?instId={okx_sym}", timeout=TIMEOUT)
+            if tick.get("code") != "0" or not tick.get("data"):
+                raise Exception(f"OKX ticker error: {tick.get('msg', 'no data')}")
+            t = tick["data"][0]
+            price = float(t["last"])
+            open24h = float(t.get("open24h", price))
+            ch24h = (price - open24h) / open24h * 100 if open24h > 0 else 0
+
+            # K线 (90天日线)
+            kline = http_get(
+                f"https://www.okx.com/api/v5/market/history-candles?instId={okx_sym}&bar=1D&limit=90",
+                timeout=TIMEOUT,
+            )
+            if kline.get("code") != "0" or not kline.get("data"):
+                raise Exception(f"OKX kline error: {kline.get('msg', 'no data')}")
+            candles = kline["data"][::-1]  # OKX返回倒序，翻转让最早在前面
+            closes = [round(float(c[4]), 6) for c in candles]
+            volumes = [float(c[6]) for c in candles]
+
+            ch7d = 0
+            if len(closes) >= 8 and closes[-8] > 0:
+                ch7d = (price - closes[-8]) / closes[-8] * 100
+
+            _ohlc_cache[sym_name] = {"closes": closes, "volumes": volumes, "ts": now}
+            history[sym_name] = {"prices": closes, "volumes": volumes}
+            market_list.append({
+                "id": sym_name, "symbol": sym_name,
+                "current_price": price,
+                "price_change_percentage_1h_in_currency": 0,
+                "price_change_percentage_24h": ch24h,
+                "price_change_percentage_7d_in_currency": ch7d,
+            })
+            print(f"  [{sym_name}] OKX ${price:,.{info['decimals']}f} | 24h {ch24h:+.2f}% | K线: {len(closes)}条")
+
+        except Exception as e:
+            print(f"  [{sym_name}] OKX 失败: {e}")
+            history[sym_name] = {"prices": [], "volumes": []}
+
+    if not market_list:
+        raise Exception("OKX 全部失败")
+    return market_list, history
+
+
+# ============================================================
+# 数据源 1: Yahoo Finance v8 chart API (备选)
 # ============================================================
 def fetch_yahoo_single(yf_sym):
     """下载单个币种 90 天日线, 返回 (closes, volumes, price, ch24h)"""
@@ -196,16 +272,43 @@ def fetch_all_binance(coins):
 
 
 # ============================================================
-# 数据入口: 多源自动切换 (Yahoo > CoinGecko > Binance)
+# 数据入口: 多源自动切换 (OKX > Yahoo > CoinGecko > Binance)
+# OKX 全球可用无需代理，优先使用；TAO 等不在 OKX 的币种走 CoinGecko
 # ============================================================
 def fetch_all_data(coins):
-    sources = [
+    # 分离 OKX 可用的币种和需要 CoinGecko 的币种
+    okx_coins = {k: v for k, v in coins.items() if v.get("symbol") in OKX_SYMBOLS}
+    cg_only_coins = {k: v for k, v in coins.items() if k not in okx_coins}
+
+    # 策略1: OKX + CoinGecko 补充（最可靠）
+    try:
+        print(f"  尝试: OKX ({len(okx_coins)}币种)...")
+        okx_market, okx_history = fetch_all_okx(okx_coins)
+        print(f"  ✓ OKX 成功 ({len(okx_market)}币种)")
+
+        # 补充 CoinGecko 专属币种（如 TAO）
+        if cg_only_coins:
+            try:
+                print(f"  尝试: CoinGecko 补充 ({len(cg_only_coins)}币种)...")
+                cg_market, cg_history = fetch_all_coingecko(cg_only_coins)
+                okx_market.extend(cg_market)
+                okx_history.update(cg_history)
+                print(f"  ✓ CoinGecko 补充成功")
+            except Exception as e:
+                print(f"  ✗ CoinGecko 补充失败: {e}")
+
+        return okx_market, okx_history
+    except Exception as e:
+        print(f"  ✗ OKX 全部失败: {e}")
+
+    # 策略2: 全量回退到其他数据源
+    fallback_sources = [
         ("Yahoo Finance", fetch_all_yahoo),
         ("CoinGecko",     fetch_all_coingecko),
         ("Binance",       fetch_all_binance),
     ]
 
-    for name, func in sources:
+    for name, func in fallback_sources:
         try:
             print(f"  尝试: {name}...")
             result = func(coins)
@@ -214,7 +317,7 @@ def fetch_all_data(coins):
         except Exception as e:
             print(f"  ✗ {name}: {e}")
 
-    raise Exception("所有数据源均失败: Yahoo / CoinGecko / Binance")
+    raise Exception("所有数据源均失败: OKX / Yahoo / CoinGecko / Binance")
 
 
 # ============================================================
