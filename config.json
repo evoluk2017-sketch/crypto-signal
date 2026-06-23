@@ -19,15 +19,15 @@
       "sendkey": "SCT368399TJgngzqLUArf3mcXrbNAP5hTc"
     },
     "telegram": {
-      "enabled": false,
-      "comment": "去 @BotFather 创建 Bot 获取 token",
-      "bot_token": "",
-      "chat_id": ""
+      "enabled": true,
+      "comment": "@CryptoSignalNo1_Bot",
+      "bot_token": "8878351086:AAFlGRtc0AQCv5vrduxME55I6FCi3tb-hmE",
+      "chat_id": "2117671627"
     },
     "dingtalk": {
-      "enabled": false,
-      "comment": "钉钉群设置 → 智能群助手 → 添加机器人 → 自定义 → 获取 Webhook URL",
-      "webhook_url": ""
+      "enabled": true,
+      "comment": "钉钉自定义机器人",
+      "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=35d1ce83e63206d91cad52a63cd522d4c3fd74721f5616e0f31ee9accebdd63b"
     }
   }
 }
