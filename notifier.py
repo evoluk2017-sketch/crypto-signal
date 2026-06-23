@@ -3,6 +3,10 @@
 """
 import json
 import time
+import hmac
+import hashlib
+import base64
+import urllib.parse
 import requests
 from datetime import datetime
 
@@ -99,14 +103,38 @@ class Notifier:
         try:
             # 钉钉 Markdown 消息格式
             md_text = f"## {title}\n\n{text.replace('**', '**')}"
-            resp = self.session.post(dt["webhook_url"], json={
+            
+            # 钉钉加签验证
+            webhook_url = dt["webhook_url"]
+            secret = dt.get("secret", "")
+            
+            if secret:
+                # 计算签名
+                timestamp = str(round(time.time() * 1000))
+                secret_enc = secret.encode('utf-8')
+                string_to_sign = f'{timestamp}\n{secret}'
+                string_to_sign_enc = string_to_sign.encode('utf-8')
+                hmac_code = hmac.new(secret_enc, string_to_sign_enc, digestmod=hashlib.sha256).digest()
+                sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
+                
+                # 添加时间戳和签名到 URL
+                webhook_url = f"{webhook_url}&timestamp={timestamp}&sign={sign}"
+            
+            resp = self.session.post(webhook_url, json={
                 "msgtype": "markdown",
                 "markdown": {
                     "title": title,
                     "text": md_text.replace("\n", "  \n"),
                 },
             }, timeout=10)
-            return resp.json()
+            result = resp.json()
+            
+            # 检查是否成功
+            if result.get("errcode") == 0:
+                return result
+            else:
+                print(f"  [钉钉] 推送失败: {result}")
+                return None
         except Exception as e:
             print(f"  [钉钉] 推送失败: {e}")
             return None
