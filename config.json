@@ -5,10 +5,10 @@
     "BNB": {"symbol": "BNB-USDT", "decimals": 2, "name": "Binance Coin"},
     "SOL": {"symbol": "SOL-USDT", "decimals": 2, "name": "Solana"},
     "ZEC": {"symbol": "ZEC-USDT", "decimals": 2, "name": "Zcash"},
-    "TRX": {"symbol": "TRXUSDT", "decimals": 4, "name": "TRON", "source": "binance"},
+    "TRX": {"symbol": "TRX-USDT", "decimals": 4, "name": "TRON"},
     "TAO": {"symbol": "TAO-USDT", "decimals": 2, "name": "Bittensor", "source": "coingecko", "coin_id": "bittensor"},
-    "DOGE": {"symbol": "DOGEUSDT", "decimals": 4, "name": "Dogecoin", "source": "binance"},
-    "XRP": {"symbol": "XRPUSDT", "decimals": 4, "name": "XRP", "source": "binance"}
+    "DOGE": {"symbol": "DOGE-USDT", "decimals": 4, "name": "Dogecoin"},
+    "XRP": {"symbol": "XRP-USDT", "decimals": 4, "name": "XRP"}
   },
   "poll_interval_seconds": 90,
   "alert_cooldown_minutes": 30,
