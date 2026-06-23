@@ -632,6 +632,71 @@ body {
   .gauge-section { gap: 12px; }
   .signal-badge { font-size: 12px; padding: 5px 14px; }
 }
+
+/* ============ Promo Banner ============ */
+.promo-banner {
+  max-width: 1440px;
+  margin: 20px auto 0;
+  padding: 0 32px;
+}
+.promo-banner-inner {
+  background: linear-gradient(135deg, rgba(0, 212, 159, 0.08) 0%, rgba(91, 156, 245, 0.08) 50%, rgba(139, 108, 245, 0.06) 100%);
+  border: 1px solid rgba(0, 212, 159, 0.18);
+  border-radius: var(--radius);
+  padding: 16px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+.promo-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.promo-item .promo-icon {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.promo-item.aster .promo-icon { background: rgba(0, 212, 159, 0.15); }
+.promo-item.binance .promo-icon { background: rgba(243, 186, 47, 0.15); }
+.promo-text { color: var(--text); line-height: 1.5; }
+.promo-text .highlight { color: var(--green); font-weight: 700; }
+.promo-text .highlight2 { color: #f3ba2f; font-weight: 700; }
+.promo-link {
+  color: var(--blue);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 12px;
+  word-break: break-all;
+  transition: color 0.2s;
+}
+.promo-link:hover { color: var(--green); }
+.promo-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 73, 101, 0.15);
+  color: var(--red);
+  margin-left: 4px;
+}
+@media (max-width: 768px) {
+  .promo-banner { padding: 0 16px; }
+  .promo-banner-inner { flex-direction: column; align-items: flex-start; gap: 12px; padding: 14px 18px; }
+  .promo-item { font-size: 12px; }
+}
 </style>
 </head>
 <body>
@@ -647,6 +712,25 @@ body {
       <span id="statusText">连接中...</span>
     </div>
     <span class="time" id="countdown"></span>
+  </div>
+</div>
+
+<div class="promo-banner">
+  <div class="promo-banner-inner">
+    <div class="promo-item aster">
+      <div class="promo-icon">🪐</div>
+      <div>
+        <div class="promo-text">📢 <span class="highlight">一起来 Aster 交易！</span>⏰ 限时福利！注册领空投 + 9% 手续费返现<span class="promo-badge">限时</span></div>
+        <a class="promo-link" href="https://www.asterdex.com/en/referral/8A7f17" target="_blank" rel="noopener">📌 asterdex.com/en/referral/8A7f17</a>
+      </div>
+    </div>
+    <div class="promo-item binance">
+      <div class="promo-icon">🟡</div>
+      <div>
+        <div class="promo-text">📢 <span class="highlight2">一起来币安 Binance 交易！</span>新用户注册享手续费减免+返佣</div>
+        <a class="promo-link" href="https://www.bsmkweb.cc/register?ref=BRZL88" target="_blank" rel="noopener">✅ bsmkweb.cc/register?ref=BRZL88 · 🔒 安全跳转币安官方</a>
+      </div>
+    </div>
   </div>
 </div>
 

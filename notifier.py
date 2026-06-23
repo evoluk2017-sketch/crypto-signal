@@ -1,7 +1,9 @@
 """
 多渠道通知系统：Server酱 / Telegram / 钉钉
+敏感信息通过环境变量传入，不硬编码在配置文件中
 """
 import json
+import os
 import time
 import hmac
 import hashlib
@@ -19,6 +21,12 @@ class Notifier:
         self.session.headers.update({
             "User-Agent": "CryptoSignalBot/2.0"
         })
+
+    def _get(self, section, key, env_name=None):
+        """优先从环境变量读取敏感信息，fallback 到 config"""
+        if env_name and os.environ.get(env_name):
+            return os.environ[env_name]
+        return self.n.get(section, {}).get(key, "")
 
     def _build_message(self, sym, score, info, results):
         """构建信号消息文本"""
@@ -60,16 +68,26 @@ class Notifier:
 📅 7D涨跌: {changes.get('7d', 0):+.2f}%
 
 ⏰ 信号时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+{'─' * 30}
+📢 **一起来 Aster 交易！**
+⏰ 限时福利！注册 Aster 领空投 + 9% 手续费返现
+🔗 链接直达：https://www.asterdex.com/en/referral/8A7f17
+
+📢 **一起来币安 Binance 交易！**
+✅ 新用户注册，享手续费减免+返佣
+🔗 币安合作入口（国内直连）：https://www.bsmkweb.cc/register?ref=BRZL88
+🔒 最终跳转币安官方注册，安全有保障，邀请码自动绑定 BRZL88
 """
 
     # ==================== Server酱 ====================
     def send_serverchan(self, title, content):
-        sc = self.n.get("serverchan", {})
-        if not sc.get("enabled") or not sc.get("sendkey"):
+        sendkey = self._get("serverchan", "sendkey", "SERVERCHAN_SENDKEY")
+        if not sendkey:
             return None
         try:
             resp = self.session.post(
-                f"https://sctapi.ftqq.com/{sc['sendkey']}.send",
+                f"https://sctapi.ftqq.com/{sendkey}.send",
                 data={"title": title, "desp": content},
                 timeout=10,
             )
@@ -80,13 +98,14 @@ class Notifier:
 
     # ==================== Telegram ====================
     def send_telegram(self, text):
-        tg = self.n.get("telegram", {})
-        if not tg.get("enabled") or not tg.get("bot_token") or not tg.get("chat_id"):
+        bot_token = self._get("telegram", "bot_token", "TG_BOT_TOKEN")
+        chat_id = self._get("telegram", "chat_id", "TG_CHAT_ID")
+        if not bot_token or not chat_id:
             return None
         try:
-            url = f"https://api.telegram.org/bot{tg['bot_token']}/sendMessage"
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
             resp = self.session.post(url, json={
-                "chat_id": tg["chat_id"],
+                "chat_id": chat_id,
                 "text": text,
                 "parse_mode": "Markdown",
             }, timeout=10)
@@ -97,17 +116,15 @@ class Notifier:
 
     # ==================== 钉钉 ====================
     def send_dingtalk(self, title, text):
-        dt = self.n.get("dingtalk", {})
-        if not dt.get("enabled") or not dt.get("webhook_url"):
+        webhook_url = self._get("dingtalk", "webhook_url", "DINGTALK_WEBHOOK")
+        secret = self._get("dingtalk", "secret", "DINGTALK_SECRET")
+        if not webhook_url:
             return None
         try:
             # 钉钉 Markdown 消息格式
             md_text = f"## {title}\n\n{text.replace('**', '**')}"
-            
+
             # 钉钉加签验证
-            webhook_url = dt["webhook_url"]
-            secret = dt.get("secret", "")
-            
             if secret:
                 # 计算签名
                 timestamp = str(round(time.time() * 1000))
@@ -116,10 +133,10 @@ class Notifier:
                 string_to_sign_enc = string_to_sign.encode('utf-8')
                 hmac_code = hmac.new(secret_enc, string_to_sign_enc, digestmod=hashlib.sha256).digest()
                 sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
-                
+
                 # 添加时间戳和签名到 URL
                 webhook_url = f"{webhook_url}&timestamp={timestamp}&sign={sign}"
-            
+
             resp = self.session.post(webhook_url, json={
                 "msgtype": "markdown",
                 "markdown": {
@@ -128,7 +145,7 @@ class Notifier:
                 },
             }, timeout=10)
             result = resp.json()
-            
+
             # 检查是否成功
             if result.get("errcode") == 0:
                 return result

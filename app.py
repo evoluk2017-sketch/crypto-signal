@@ -104,6 +104,25 @@ def engine_loop():
 
     while True:
         try:
+            # 每个周期从文件重新加载状态（多 worker / 重启后恢复同步数据）
+            try:
+                with open(STATE_FILE, "r") as f:
+                    file_state = json.load(f)
+                with state_lock:
+                    if file_state.get("engine_status") == "synced" and file_state.get("results"):
+                        state["results"] = file_state["results"]
+                        state["last_update"] = file_state["last_update"]
+                        state["engine_status"] = "synced"
+                        state["market_indicators"] = file_state.get("market_indicators", {})
+                        if file_state.get("history"):
+                            state["history"] = file_state["history"]
+                        if file_state.get("daily_events"):
+                            state["daily_events"] = file_state["daily_events"]
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+
             # 如果有本地推送的数据且较新，跳过自行拉取（避免覆盖）
             with state_lock:
                 if state["engine_status"] == "synced" and state["results"] and state["last_update"]:
@@ -304,6 +323,11 @@ def api_sync():
         if indicators:
             state["market_indicators"] = indicators
 
+        # 每日大事件
+        daily_events = data.get("daily_events")
+        if daily_events and daily_events.get("events"):
+            state["daily_events"] = daily_events
+
         # 合并历史记录
         new_history = data.get("history", [])
         for record in new_history:
@@ -317,6 +341,7 @@ def api_sync():
             state["history"] = state["history"][:50]
 
     print(f"[{datetime.now():%H:%M:%S}] 收到本地引擎同步: {len(data.get('results', {}))}个币种")
+    save_state()  # 持久化到文件，防止多 worker 不一致
     return jsonify({"ok": True, "updated": len(data.get("results", {}))})
 
 
@@ -332,6 +357,7 @@ def api_daily_events():
             "events": data.get("events", []),
             "updated_at": datetime.now().isoformat(),
         }
+    save_state()  # 持久化，防止重启丢失
     print(f"[{datetime.now():%H:%M:%S}] 收到每日大事件: {len(data.get('events', []))}条 ({data.get('date', '?')})")
     return jsonify({"ok": True})
 
