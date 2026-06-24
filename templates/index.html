@@ -566,6 +566,13 @@ body {
   margin-top: 4px;
   line-height: 1.5;
 }
+.event-original {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  margin-top: 2px;
+  line-height: 1.4;
+}
 
 @media (max-width: 768px) {
   .indicator-grid { grid-template-columns: repeat(2, 1fr); }
@@ -1118,15 +1125,20 @@ function renderDailyEvents(eventsData) {
     dateLabel.textContent = eventsData.date + ' \u00b7 \u6bcf\u65e5 08:00 \u66f4\u65b0';
   }
 
-  list.innerHTML = eventsData.events.map((e, i) => `
+  list.innerHTML = eventsData.events.map((e, i) => {
+    const displayTitle = e.title_cn || e.title;
+    const origTitle = e.title_cn && e.title_cn !== e.title ? e.title : '';
+    return `
     <div class="event-item">
       <div class="event-num">${i + 1}</div>
       <div class="event-content">
-        ${e.link ? `<a class="event-title" href="${e.link}" target="_blank" rel="noopener">${e.title}</a>` : `<div class="event-title">${e.title}</div>`}
+        ${e.link ? `<a class="event-title" href="${e.link}" target="_blank" rel="noopener">${displayTitle}</a>` : `<div class="event-title">${displayTitle}</div>`}
+        ${origTitle ? `<div class="event-original">${origTitle}</div>` : ''}
         ${e.summary ? `<div class="event-summary">${e.summary}</div>` : ''}
       </div>
     </div>
-  `).join('');
+    `;
+  }).join('');
 }
 function renderHistory(history) {
   if (!history || history.length === 0) {
