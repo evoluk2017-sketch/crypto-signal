@@ -16,8 +16,8 @@ SESSION.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 })
 
-TIMEOUT = 10  # 所有请求统一 10 秒超时
-CONNECT_TIMEOUT = 4  # 连接握手超时（快速失败避免卡死）
+TIMEOUT = 8  # 读取超时
+CONNECT_TIMEOUT = 3  # 连接握手超时（Render 环境下务必快速失败）
 
 # ============================================================
 # 缓存 (历史数据缓存60分钟)
@@ -51,10 +51,9 @@ BN_SYMBOLS = {
 
 
 def http_get(url, timeout=TIMEOUT):
-    """强制超时的 GET 请求 (connect, read 分别超时)"""
-    if isinstance(timeout, (int, float)):
-        timeout = (CONNECT_TIMEOUT, timeout)
-    resp = SESSION.get(url, timeout=timeout)
+    """GET 请求 (connect, read 分别超时)"""
+    t = (CONNECT_TIMEOUT, timeout) if isinstance(timeout, (int, float)) else timeout
+    resp = SESSION.get(url, timeout=t)
     resp.raise_for_status()
     return resp.json()
 
