@@ -1,1 +1,21 @@
-{"coins": {"BTC": {"symbol": "BTC-USDT", "decimals": 0, "name": "Bitcoin"}, "ETH": {"symbol": "ETH-USDT", "decimals": 0, "name": "Ethereum"}, "BNB": {"symbol": "BNB-USDT", "decimals": 2, "name": "Binance Coin"}, "SOL": {"symbol": "SOL-USDT", "decimals": 2, "name": "Solana"}, "ZEC": {"symbol": "ZEC-USDT", "decimals": 2, "name": "Zcash"}, "TRX": {"symbol": "TRX-USDT", "decimals": 4, "name": "TRON"}, "TAO": {"symbol": "TAO-USDT", "decimals": 2, "name": "Bittensor", "source": "coingecko", "coin_id": "bittensor"}, "DOGE": {"symbol": "DOGE-USDT", "decimals": 4, "name": "Dogecoin"}, "XRP": {"symbol": "XRP-USDT", "decimals": 4, "name": "XRP"}}, "poll_interval_seconds": 90, "alert_cooldown_minutes": 30, "alert_threshold": {"long": 75, "short": 25}}
+{
+  "coins": {
+    "BTC": {"symbol": "BTC-USDT", "decimals": 0, "name": "Bitcoin"},
+    "ETH": {"symbol": "ETH-USDT", "decimals": 0, "name": "Ethereum"},
+    "BNB": {"symbol": "BNB-USDT", "decimals": 2, "name": "Binance Coin"},
+    "SOL": {"symbol": "SOL-USDT", "decimals": 2, "name": "Solana"},
+    "ZEC": {"symbol": "ZEC-USDT", "decimals": 2, "name": "Zcash"},
+    "TRX": {"symbol": "TRX-USDT", "decimals": 4, "name": "TRON"},
+    "TAO": {"symbol": "TAO-USDT", "decimals": 2, "name": "Bittensor", "source": "coingecko", "coin_id": "bittensor"},
+    "DOGE": {"symbol": "DOGE-USDT", "decimals": 4, "name": "Dogecoin"},
+    "XRP": {"symbol": "XRP-USDT", "decimals": 4, "name": "XRP"}
+  },
+  "poll_interval_seconds": 90,
+  "alert_cooldown_minutes": 30,
+  "alert_threshold": {"long": 75, "short": 25},
+  "notifications": {
+    "serverchan": {"enabled": true},
+    "telegram": {"enabled": true},
+    "dingtalk": {"enabled": true}
+  }
+}

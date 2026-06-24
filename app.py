@@ -281,9 +281,9 @@ def api_status():
                 "thresholds": {"long": THRESHOLD_LONG, "short": THRESHOLD_SHORT},
                 "alert_cooldown_minutes": CONFIG["alert_cooldown_minutes"],
                 "channels": {
-                    "serverchan": CONFIG["notifications"]["serverchan"]["enabled"],
-                    "telegram": CONFIG["notifications"]["telegram"]["enabled"],
-                    "dingtalk": CONFIG["notifications"]["dingtalk"]["enabled"],
+                    "serverchan": CONFIG.get("notifications", {}).get("serverchan", {}).get("enabled", False),
+                    "telegram": CONFIG.get("notifications", {}).get("telegram", {}).get("enabled", False),
+                    "dingtalk": CONFIG.get("notifications", {}).get("dingtalk", {}).get("enabled", False),
                 }
             }
         })
