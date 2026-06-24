@@ -90,6 +90,31 @@ def load_state():
 
 
 # ============================================================
+# 数据拉取总超时包装（防止请求卡死冻结引擎）
+# ============================================================
+def _fetch_with_total_timeout(coins, total_timeout=90):
+    """在子线程中拉取数据，设置总超时。超时则强制放弃，保证引擎不死"""
+    result = [None]
+    error = [None]
+
+    def _run():
+        try:
+            result[0] = fetch_all_data(coins)
+        except Exception as e:
+            error[0] = e
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=total_timeout)
+
+    if t.is_alive():
+        raise Exception(f"fetch_all_data 总超时({total_timeout}s)，强制放弃（子线程残留，引擎继续下一轮）")
+    if error[0]:
+        raise error[0]
+    return result[0]
+
+
+# ============================================================
 # 后台引擎线程
 # ============================================================
 def engine_loop():
@@ -136,7 +161,7 @@ def engine_loop():
                         pass
                 state["engine_status"] = "fetching"
 
-            market, history = fetch_all_data(COINS)
+            market, history = _fetch_with_total_timeout(COINS)
 
             with state_lock:
                 state["engine_status"] = "scoring"

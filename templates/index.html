@@ -667,16 +667,21 @@ body {
   font-weight: 600;
 }
 .promo-item .promo-icon {
-  width: 28px; height: 28px;
-  border-radius: 50%;
+  width: 32px; height: 32px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
   flex-shrink: 0;
+  overflow: hidden;
+  background: rgba(255,255,255,0.06);
 }
-.promo-item.aster .promo-icon { background: rgba(0, 212, 159, 0.15); }
-.promo-item.binance .promo-icon { background: rgba(243, 186, 47, 0.15); }
+.promo-item .promo-icon img {
+  width: 28px; height: 28px;
+  object-fit: contain;
+}
+.promo-item.aster .promo-icon { background: rgba(0, 212, 159, 0.12); }
+.promo-item.binance .promo-icon { background: rgba(243, 186, 47, 0.12); }
 .promo-text { color: var(--text); line-height: 1.5; }
 .promo-text .highlight { color: var(--green); font-weight: 700; }
 .promo-text .highlight2 { color: #f3ba2f; font-weight: 700; }
@@ -725,15 +730,13 @@ body {
 <div class="promo-banner">
   <div class="promo-banner-inner">
     <div class="promo-item aster">
-      <div class="promo-icon">🪐</div>
-      <div>
+      <div class="promo-icon"><img src="https://assets.coingecko.com/coins/images/69040/standard/_ASTER.png?1757326782" alt="Aster" onerror="this.style.display='none'"></div>      <div>
         <div class="promo-text">📢 <span class="highlight">一起来 Aster 交易！</span>⏰ 限时福利！注册领空投 + 9% 手续费返现<span class="promo-badge">限时</span></div>
         <a class="promo-link" href="https://www.asterdex.com/en/referral/8A7f17" target="_blank" rel="noopener">📌 asterdex.com/en/referral/8A7f17</a>
       </div>
     </div>
     <div class="promo-item binance">
-      <div class="promo-icon">🟡</div>
-      <div>
+      <div class="promo-icon"><img src="https://cryptologos.cc/logos/binance-coin-bnb-logo.png?v=040" alt="Binance" onerror="this.style.display='none'"></div>      <div>
         <div class="promo-text">📢 <span class="highlight2">一起来币安 Binance 交易！</span>新用户注册享手续费减免+返佣</div>
         <a class="promo-link" href="https://www.bsmkweb.cc/register?ref=BRZL88" target="_blank" rel="noopener">✅ bsmkweb.cc/register?ref=BRZL88 · 🔒 安全跳转币安官方</a>
       </div>
