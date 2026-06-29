@@ -151,17 +151,20 @@ RSS_FEEDS = [
 ]
 
 def translate_to_chinese(text):
-    """Google Translate 免费 API 英译中"""
+    """MyMemory 免费 API 英译中（Google Translate 在 Render 上被墙）"""
     if not text:
         return text
     try:
-        import urllib.parse
-        encoded = urllib.parse.quote(text)
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q={encoded}"
-        resp = requests.get(url, timeout=8)
+        resp = requests.get(
+            "https://api.mymemory.translated.net/get",
+            params={"q": text[:500], "langpair": "en|zh"},
+            timeout=8,
+        )
         data = resp.json()
-        translated = "".join(seg[0] for seg in data[0] if seg and seg[0]) if data and data[0] else text
-        return translated.strip() or text
+        translated = data.get("responseData", {}).get("translatedText", "")
+        if translated and not translated.upper().startswith("PLEASE SELECT"):
+            return translated
+        return text
     except Exception:
         return text
 
@@ -243,7 +246,6 @@ def engine_loop():
     print("-" * 55)
 
     _sync_fresh_seconds = POLL_INTERVAL * 3  # 3个周期内有本地推送则跳过自行拉取
-    _last_daily_events_date = ""  # 追踪今日是否已推送大事件
 
     while True:
         try:
@@ -385,13 +387,18 @@ def engine_loop():
                 with state_lock:
                     state["market_indicators"] = indicators
 
-            # ========== 每日大事件 (08:00 自动抓取) ==========
+            # ========== 每日大事件 (08:00正常窗口 + 09:00后补抓) ==========
             today_str = now.strftime("%Y-%m-%d")
-            if _last_daily_events_date != today_str and now.hour == 8 and now.minute < 10:
-                print(f"\n  📰 开始抓取今日币圈大事件...")
+            # 修复：同时检查 state["daily_events"]["date"]，防止外部POST后被引擎RSS覆盖
+            daily_events_date = state.get("daily_events", {}).get("date", "")
+            need_fetch = (daily_events_date != today_str)
+            in_normal_window = (now.hour == 8 and now.minute < 10)
+            in_catchup_window = (now.hour >= 9)
+            if need_fetch and (in_normal_window or in_catchup_window):
+                print(f"\n  📰 开始抓取今日币圈大事件 (date={today_str}, last={daily_events_date}, catchup={in_catchup_window})...")
                 events = fetch_daily_events()
                 if events:
-                    _last_daily_events_date = today_str
+                    # daily_events_date already set via state
                     with state_lock:
                         state["daily_events"] = {
                             "date": today_str,
@@ -523,7 +530,12 @@ def api_daily_events():
             "events": data.get("events", []),
             "updated_at": datetime.now().isoformat(),
         }
-    save_state()  # 持久化，防止重启丢失
+        # 在同一把锁内持久化，防止引擎线程并发覆写
+        try:
+            with open(STATE_FILE, "w") as f:
+                json.dump(state, f, indent=2, default=str)
+        except Exception:
+            pass
     print(f"[{datetime.now():%H:%M:%S}] 收到每日大事件: {len(data.get('events', []))}条 ({data.get('date', '?')})")
     return jsonify({"ok": True})
 
