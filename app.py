@@ -8,6 +8,7 @@ import json
 import time
 import re
 import threading
+import requests
 import feedparser
 from datetime import datetime, timedelta
 from flask import Flask, jsonify, render_template, request
