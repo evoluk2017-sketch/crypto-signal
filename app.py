@@ -338,37 +338,39 @@ def engine_loop():
                 }
                 results[sym] = r
 
-                # 判断是否触发推送
-                with state_lock:
-                    last_alert_str = state["alerts"].get(sym)
-                    should_alert = False
-                    if last_alert_str:
-                        try:
-                            last_alert = datetime.fromisoformat(last_alert_str)
-                            elapsed = (now - last_alert).total_seconds()
-                            if elapsed >= ALERT_COOLDOWN:
-                                should_alert = True
-                        except Exception:
-                            should_alert = True
-                    else:
-                        should_alert = True
-
-                    if should_alert and (score >= THRESHOLD_LONG or score <= THRESHOLD_SHORT):
-                        channels = notifier.broadcast(sym, score, info, r)
-                        state["alerts"][sym] = now.isoformat()
-                        record = {
-                            "time": now.isoformat(),
-                            "symbol": sym,
-                            "score": score,
-                            "direction": "做多" if score >= THRESHOLD_LONG else "做空",
-                            "price": r["price"],
-                            "channels": channels or [],
-                        }
-                        state["history"].insert(0, record)
-                        if len(state["history"]) > 50:
-                            state["history"] = state["history"][:50]
-                        ch_str = ",".join(channels or ["无"])
-                        print(f"  [{sym}] 📤 信号推送 → {ch_str} | 评分 {score}/100 | {'做多' if score >= THRESHOLD_LONG else '做空'}")
+                # ===== 推送已关闭：统一由本地引擎负责，避免双引擎重复推送 =====
+                # 云端引擎只负责拉数据、评分、Web展示，不再主动推送三端消息
+                # 如需重新启用，取消下面注释并将 return 移到注释块外
+                # if False:  # 原推送逻辑已禁用 (2026-07-09)
+                #     with state_lock:
+                #         last_alert_str = state["alerts"].get(sym)
+                #         should_alert = False
+                #         if last_alert_str:
+                #             try:
+                #                 last_alert = datetime.fromisoformat(last_alert_str)
+                #                 elapsed = (now - last_alert).total_seconds()
+                #                 if elapsed >= ALERT_COOLDOWN:
+                #                     should_alert = True
+                #             except Exception:
+                #                 should_alert = True
+                #         else:
+                #             should_alert = True
+                #         if should_alert and (score >= THRESHOLD_LONG or score <= THRESHOLD_SHORT):
+                #             channels = notifier.broadcast(sym, score, info, r)
+                #             state["alerts"][sym] = now.isoformat()
+                #             record = {
+                #                 "time": now.isoformat(),
+                #                 "symbol": sym,
+                #                 "score": score,
+                #                 "direction": "做多" if score >= THRESHOLD_LONG else "做空",
+                #                 "price": r["price"],
+                #                 "channels": channels or [],
+                #             }
+                #             state["history"].insert(0, record)
+                #             if len(state["history"]) > 50:
+                #                 state["history"] = state["history"][:50]
+                #             ch_str = ",".join(channels or ["无"])
+                #             print(f"  [{sym}] 📤 信号推送 → {ch_str} | 评分 {score}/100 | {'做多' if score >= THRESHOLD_LONG else '做空'}")
 
             with state_lock:
                 # 只有拉到数据才覆盖，否则保留本地引擎推送的数据
